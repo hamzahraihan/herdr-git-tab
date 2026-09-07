@@ -1,5 +1,5 @@
 import React from "react";
-import { Box, Text } from "ink";
+import { Text } from "ink";
 
 export type ButtonDef = { id: number; label: string; title: string };
 
@@ -13,19 +13,10 @@ export const PANE_BUTTONS: ButtonDef[] = [
 ];
 
 export default function ButtonStrip({ active }: { active: number }) {
+  const current = PANE_BUTTONS.find((b) => b.id === active) ?? PANE_BUTTONS[0];
   return (
-    <Box>
-      {PANE_BUTTONS.map((b) => (
-        <Box key={b.id} marginRight={1}>
-          <Text
-            color={active === b.id ? "cyan" : "gray"}
-            inverse={active === b.id}
-            bold={active === b.id}
-          >
-            {`[${b.label} ${b.title}]`}
-          </Text>
-        </Box>
-      ))}
-    </Box>
+    <Text color="cyan" bold inverse>
+      {`[${current.label} ${current.title}]`}
+    </Text>
   );
 }
