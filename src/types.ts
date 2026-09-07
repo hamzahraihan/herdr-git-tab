@@ -6,6 +6,7 @@ export type Commit = {
   subject: string;
   refs: string[];
   graph: string;
+  parents: string[];
 };
 
 export type Branch = {

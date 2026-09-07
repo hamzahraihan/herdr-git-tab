@@ -12,8 +12,8 @@ describe("parseHistoryOutput", () => {
     const h1 = "a".repeat(40);
     const h2 = "b".repeat(40);
     const stdout = [
-      `* ${h1}${F}9f2c3a1${F}Ada${F}2026-09-01T10:00:00+00:00${F}seed commit${F}HEAD -> main`,
-      `| * ${h2}${F}77aa00f${F}Bo${F}2026-09-02T11:00:00+00:00${F}wip work${F}origin/feature`,
+      `* ${h1}${F}9f2c3a1${F}Ada${F}2026-09-01T10:00:00+00:00${F}seed commit${F}HEAD -> main${F}`,
+      `| * ${h2}${F}77aa00f${F}Bo${F}2026-09-02T11:00:00+00:00${F}wip work${F}origin/feature${F}`,
     ].join("\n");
     const commits = parseHistoryOutput(stdout);
     expect(commits).toHaveLength(2);
@@ -22,8 +22,19 @@ describe("parseHistoryOutput", () => {
     expect(commits[0].author).toBe("Ada");
     expect(commits[0].subject).toBe("seed commit");
     expect(commits[0].refs).toEqual(["HEAD -> main"]);
+    expect(commits[0].parents).toEqual([]);
     expect(commits[1].graph).toBe("| * ");
     expect(commits[1].refs).toEqual(["origin/feature"]);
+  });
+
+  it("extracts parents array", () => {
+    const h1 = "a".repeat(40);
+    const h2 = "b".repeat(40);
+    const stdout = [
+      `* ${h1}${F}9f2c3a1${F}Ada${F}2026-09-01T10:00:00+00:00${F}merge${F}HEAD -> main${F}${h2}`,
+    ].join("\n");
+    const commits = parseHistoryOutput(stdout);
+    expect(commits[0].parents).toEqual([h2]);
   });
 
   it("returns [] for empty log output", () => {

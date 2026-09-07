@@ -12,6 +12,7 @@ import BranchesPane from "./views/BranchesPane.js";
 import PRsPane from "./views/PRsPane.js";
 import IssuesPane from "./views/IssuesPane.js";
 import StatusPane from "./views/StatusPane.js";
+import ButtonStrip from "./views/ButtonStrip.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -187,6 +188,7 @@ export default function App({
           <Text> Loading {repo}…</Text>
         </Box>
       ) : null}
+      <ButtonStrip active={activePane} />
       <Box flexGrow={2} width="100%">
         <Box flexDirection="column" width="60%">
           <Box borderStyle="single" borderColor={border(1)} flexDirection="column" flexGrow={1}>

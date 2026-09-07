@@ -27,14 +27,16 @@ function isErrnoEnt(e: unknown): boolean {
   return err?.code === "ENOENT";
 }
 
+const FIELD_SEP = "";
+
 /** Split one `git log --graph --pretty=format:...` line into graph glyphs + fields. */
 export function parseHistoryLine(line: string): Commit | null {
   const m = HASH_RE.exec(line);
   if (!m || m.index === undefined) return null;
   const graph = line.slice(0, m.index);
-  const rest = line.slice(m.index).split("");
-  if (rest.length < 6) return null;
-  const [hash, shortHash, author, date, subject, refsRaw] = rest;
+  const rest = line.slice(m.index).split(FIELD_SEP);
+  if (rest.length < 7) return null;
+  const [hash, shortHash, author, date, subject, refsRaw, parentsRaw] = rest;
   const refs =
     refsRaw.trim().length === 0
       ? []
@@ -42,7 +44,8 @@ export function parseHistoryLine(line: string): Commit | null {
           .split(",")
           .map((s) => s.trim())
           .filter((s) => s.length > 0);
-  return { hash, shortHash, author, date, subject, refs, graph };
+  const parents = parentsRaw.trim().length === 0 ? [] : parentsRaw.trim().split(" ");
+  return { hash, shortHash, author, date, subject, refs, graph, parents };
 }
 
 export function parseHistoryOutput(stdout: string): Commit[] {
@@ -56,11 +59,12 @@ export function parseHistoryOutput(stdout: string): Commit[] {
 }
 
 export async function getHistory(repo: string, limit = 100): Promise<Commit[]> {
+
   try {
     const { stdout } = await runGit(repo, [
       "log",
       "--graph",
-      "--pretty=format:%H%h%an%cI%s%D",
+      "--pretty=format:%H%x1f%h%x1f%an%x1f%cI%x1f%s%x1f%D%x1f%P",
       "--all",
       "-n",
       String(limit),

@@ -14,6 +14,13 @@ command = ["pnpm", "approve-builds", "esbuild"]
 [[build]]
 command = ["pnpm", "build"]
 
+# Right-click "Open Git Tab" on a Herdr workspace.
+[[actions]]
+id = "open-git-tab"
+title = "Open Git Tab"
+contexts = ["workspace"]
+command = ["node", "dist/bin/open-tab.js"]
+
 # Tab command the user can launch from a workspace.
 [[panes]]
 id = "git-tab"
