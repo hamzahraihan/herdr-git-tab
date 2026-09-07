@@ -1,0 +1,22 @@
+id = "herdr-git-tab"
+name = "Git Tab"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Keyboard-driven git + GitHub TUI: history, graph, branches, PRs, issues, status."
+platforms = ["linux", "macos", "windows"]
+
+[[build]]
+command = ["pnpm", "install"]
+
+[[build]]
+command = ["pnpm", "approve-builds", "esbuild"]
+
+[[build]]
+command = ["pnpm", "build"]
+
+# Tab command the user can launch from a workspace.
+[[panes]]
+id = "git-tab"
+title = "Git"
+placement = "tab"
+command = ["node", "dist/cli.js"]

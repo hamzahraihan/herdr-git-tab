@@ -1,0 +1,29 @@
+{
+  "name": "herdr-git-tab",
+  "version": "0.1.0",
+  "description": "Herdr tab command: keyboard-driven git/GitHub TUI (history, graph, branches, PRs, issues, status)",
+  "type": "module",
+  "bin": {
+    "herdr-git-tab": "dist/cli.js"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.tsx",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "ink": "^5",
+    "ink-select-input": "^6",
+    "ink-spinner": "^5",
+    "react": "^18"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "tsx": "^4",
+    "typescript": "^5",
+    "vitest": "^2"
+  },
+  "packageManager": "pnpm@11.18.0+sha512.33d83c77da82f49fba836925c6f1b841181ec3132b670639bd012f7075f5c7cf634c5f870147c19aae7478fac01df09d8892e880454896edd23ee9b33757563c"
+}

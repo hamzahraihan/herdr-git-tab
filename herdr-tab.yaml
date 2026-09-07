@@ -1,0 +1,5 @@
+# Example Herdr tab wiring for herdr-git-tab.
+# Copy-paste into herdr-spreader/infra config; not auto-wired, no Herdr core changes.
+tabs:
+  - name: git
+    command: herdr-git-tab --repo {{repo}}
