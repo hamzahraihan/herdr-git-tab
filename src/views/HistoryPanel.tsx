@@ -13,7 +13,7 @@ export function filterCommits(commits: Commit[], query: string): Commit[] {
   );
 }
 
-export default function HistoryPane({
+export default function HistoryPanel({
   commits,
   selected,
   query,
@@ -31,8 +31,8 @@ export default function HistoryPane({
     );
   }
   const safe = Math.min(selected, filtered.length - 1);
-  const start = Math.max(0, Math.min(safe - 8, filtered.length - 20));
-  const rows = filtered.slice(start, start + 20);
+  const start = Math.max(0, Math.min(safe - 8, filtered.length - 30));
+  const rows = filtered.slice(start, start + 30);
   return (
     <Box flexDirection="column">
       {rows.map((c, i) => {
@@ -40,7 +40,7 @@ export default function HistoryPane({
         const active = idx === safe;
         const refs = c.refs.length > 0 ? ` ${c.refs.join(", ")}` : "";
         return (
-          <Text key={c.hash} color={active ? "cyan" : undefined} inverse={active}>
+          <Text key={c.hash} color={active ? "white" : undefined} inverse={active}>
             {c.shortHash} {c.author} {c.date.slice(0, 10)} {c.subject}
             {refs}
           </Text>

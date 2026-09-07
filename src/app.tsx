@@ -6,19 +6,15 @@ import Spinner from "ink-spinner";
 import type { Branch, Commit, Issue, PR, RepoStatus } from "./types.js";
 import { checkoutBranch, getBranches, getHistory, getStatus } from "./git.js";
 import { getIssues, getPRs, hasGithubRemote } from "./github.js";
-import HistoryPane from "./views/HistoryPane.js";
-import GraphPane from "./views/GraphPane.js";
-import BranchesPane from "./views/BranchesPane.js";
-import PRsPane from "./views/PRsPane.js";
-import IssuesPane from "./views/IssuesPane.js";
-import StatusPane from "./views/StatusPane.js";
-import ButtonStrip from "./views/ButtonStrip.js";
+import TabBar from "./views/TabBar.js";
+import HistoryPanel from "./views/HistoryPanel.js";
+import FlowPanel from "./views/FlowPanel.js";
+import BranchesPanel from "./views/BranchesPanel.js";
+import PRsPanel from "./views/PRsPanel.js";
+import IssuesPanel from "./views/IssuesPanel.js";
+import StatusPanel from "./views/StatusPanel.js";
 
 const execFileAsync = promisify(execFile);
-
-function paneError(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
 
 export default function App({
   repo,
@@ -43,6 +39,7 @@ export default function App({
   const [activePane, setActivePane] = useState(1);
   const [filtering, setFiltering] = useState(false);
   const [query, setQuery] = useState("");
+  const [branchFilter, setBranchFilter] = useState("");
   const [error, setError] = useState("");
   const [selH, setSelH] = useState(0);
   const [selB, setSelB] = useState(0);
@@ -61,7 +58,9 @@ export default function App({
     ]);
     const errs: Record<string, string> = {};
     if (s.status === "rejected" && paneError(s.reason) === "NOT_A_GIT_REPO") {
-      setFatal(`Not a git repository: ${repo}\nRun inside a git checkout or pass --repo <path>, then press q to exit.`);
+      setFatal(
+        `Not a git repository: ${repo}\nRun inside a git checkout or pass --repo <path>, then press q to exit.`,
+      );
       setLoading(false);
       return;
     }
@@ -80,7 +79,6 @@ export default function App({
     else errs.issues = paneError((i as PromiseRejectedResult).reason);
     if (r.status === "fulfilled") setNoRemote(!r.value);
     setPaneErrors(errs);
-    setSelH((v) => Math.max(0, v));
     setLoading(false);
   }, [repo]);
 
@@ -98,6 +96,7 @@ export default function App({
     if (filtering) {
       if (key.escape) {
         setFiltering(false);
+        if (activePane === 3) setBranchFilter("");
         return;
       }
       if (key.return) {
@@ -105,10 +104,14 @@ export default function App({
         return;
       }
       if (key.backspace || key.delete) {
-        setQuery((q) => q.slice(0, -1));
+        if (activePane === 3) setBranchFilter((q) => q.slice(0, -1));
+        else setQuery((q) => q.slice(0, -1));
         return;
       }
-      if (input && !key.ctrl && !key.meta) setQuery((q) => q + input);
+      if (input && !key.ctrl && !key.meta) {
+        if (activePane === 3) setBranchFilter((q) => q + input);
+        else setQuery((q) => q + input);
+      }
       return;
     }
     if (input >= "1" && input <= "6") {
@@ -128,14 +131,14 @@ export default function App({
       return;
     }
     if (input === "j" || key.downArrow) {
-      if (activePane <= 2) setSelH((v) => v + 1);
+      if (activePane === 1 || activePane === 2) setSelH((v) => v + 1);
       else if (activePane === 3) setSelB((v) => Math.min(v + 1, branches.length - 1));
       else if (activePane === 4) setSelPR((v) => Math.min(v + 1, prs.length - 1));
       else if (activePane === 5) setSelIssue((v) => Math.min(v + 1, issues.length - 1));
       return;
     }
     if (input === "k" || key.upArrow) {
-      if (activePane <= 2) setSelH((v) => Math.max(0, v - 1));
+      if (activePane === 1 || activePane === 2) setSelH((v) => Math.max(0, v - 1));
       else if (activePane === 3) setSelB((v) => Math.max(0, v - 1));
       else if (activePane === 4) setSelPR((v) => Math.max(0, v - 1));
       else if (activePane === 5) setSelIssue((v) => Math.max(0, v - 1));
@@ -153,7 +156,10 @@ export default function App({
       }
       if (activePane === 4) {
         const p = prs[selPR];
-        if (p) execFileAsync("gh", ["pr", "view", "--web", String(p.number)], { cwd: repo }).catch(() => {});
+        if (p)
+          execFileAsync("gh", ["pr", "view", "--web", String(p.number)], { cwd: repo }).catch(
+            () => {},
+          );
         return;
       }
       if (activePane === 5) {
@@ -176,107 +182,74 @@ export default function App({
     );
   }
 
-  const border = (n: number) => (activePane === n ? "cyan" : "gray");
-
   return (
     <Box flexDirection="column" width="100%">
       {loading && commits.length === 0 && !status ? (
-        <Box>
+        <Box paddingX={1}>
           <Text color="cyan">
             <Spinner type="dots" />
           </Text>
           <Text> Loading {repo}…</Text>
         </Box>
       ) : null}
-      <ButtonStrip active={activePane} />
-      <Box flexGrow={2} width="100%">
-        <Box flexDirection="column" width="60%">
-          <Box borderStyle="single" borderColor={border(1)} flexDirection="column" flexGrow={1}>
-            <Text bold color={activePane === 1 ? "cyan" : "white"}>
-              1 History{paneErrors.history ? ` — ${paneErrors.history}` : ""}
-            </Text>
-            {paneErrors.history ? (
-              <Text color="red">{paneErrors.history}</Text>
-            ) : (
-              <HistoryPane commits={commits} selected={selH} query={query} />
-            )}
-          </Box>
-        </Box>
-        <Box flexDirection="column" width="40%">
-          <Box borderStyle="single" borderColor={border(2)} flexDirection="column" flexGrow={1}>
-            <Text bold color={activePane === 2 ? "cyan" : "white"}>
-              2 Graph
-            </Text>
-            <GraphPane commits={commits} selected={selH} query={query} />
-          </Box>
-        </Box>
+      <Box paddingX={1}>
+        <TabBar active={activePane} />
       </Box>
-      <Box flexGrow={1} width="100%">
-        <Box borderStyle="single" borderColor={border(3)} flexDirection="column" flexGrow={1}>
-          <Text bold color={activePane === 3 ? "cyan" : "white"}>
-            3 Branches{paneErrors.branches ? ` — ${paneErrors.branches}` : ""}
-          </Text>
-          {paneErrors.branches ? (
-            <Text color="red">{paneErrors.branches}</Text>
-          ) : (
-            <BranchesPane branches={branches} selected={selB} />
-          )}
-        </Box>
-        <Box borderStyle="single" borderColor={border(4)} flexDirection="column" flexGrow={1}>
-          <Text bold color={activePane === 4 ? "cyan" : "white"}>
-            4 PRs{noRemote && !ghError ? " (no GitHub remote)" : ""}
-            {paneErrors.prs ? ` — ${paneErrors.prs}` : ""}
-          </Text>
-          {paneErrors.prs ? (
-            <Text color="red">{paneErrors.prs}</Text>
-          ) : (
-            <PRsPane prs={prs} selected={selPR} query={query} ghError={ghError} noRemote={noRemote} />
-          )}
-        </Box>
-        <Box borderStyle="single" borderColor={border(5)} flexDirection="column" flexGrow={1}>
-          <Text bold color={activePane === 5 ? "cyan" : "white"}>
-            5 Issues{noRemote && !ghError ? " (no GitHub remote)" : ""}
-            {paneErrors.issues ? ` — ${paneErrors.issues}` : ""}
-          </Text>
-          {paneErrors.issues ? (
-            <Text color="red">{paneErrors.issues}</Text>
-          ) : (
-            <IssuesPane
-              issues={issues}
-              selected={selIssue}
-              query={query}
-              ghError={ghError}
-              noRemote={noRemote}
-            />
-          )}
-        </Box>
-        <Box borderStyle="single" borderColor={border(6)} flexDirection="column" flexGrow={1}>
-          <Text bold color={activePane === 6 ? "cyan" : "white"}>
-            6 Status{paneErrors.status ? ` — ${paneErrors.status}` : ""}
-          </Text>
-          {paneErrors.status ? (
-            <Text color="red">{paneErrors.status}</Text>
-          ) : (
-            <StatusPane status={status} />
-          )}
-        </Box>
+      <Box flexDirection="column" flexGrow={1} paddingX={1} paddingY={1}>
+        {activePane === 1 && (
+          <HistoryPanel commits={commits} selected={selH} query={query} />
+        )}
+        {activePane === 2 && (
+          <FlowPanel commits={commits} branches={branches} prs={prs} selected={selH} query={query} />
+        )}
+        {activePane === 3 && (
+          <BranchesPanel
+            branches={branches}
+            selected={selB}
+            filter={branchFilter}
+            error={paneErrors.branches}
+          />
+        )}
+        {activePane === 4 && (
+          <PRsPanel
+            prs={prs}
+            selected={selPR}
+            query={query}
+            ghError={ghError}
+            noRemote={noRemote}
+            error={paneErrors.prs}
+          />
+        )}
+        {activePane === 5 && (
+          <IssuesPanel
+            issues={issues}
+            selected={selIssue}
+            query={query}
+            ghError={ghError}
+            noRemote={noRemote}
+            error={paneErrors.issues}
+          />
+        )}
+        {activePane === 6 && <StatusPanel status={status} error={paneErrors.status} />}
       </Box>
       {filtering ? (
-        <Box>
-          <Text color="cyan">/{query}</Text>
+        <Box paddingX={1}>
+          <Text color="cyan">/{activePane === 3 ? branchFilter : query}</Text>
           <Text color="gray"> (esc/ent done)</Text>
         </Box>
       ) : null}
       {error ? (
-        <Box>
+        <Box paddingX={1}>
           <Text color="red">{error}</Text>
         </Box>
       ) : null}
-      <Box>
-        <Text color="gray">
-          1-6 focus · / filter · r refresh · q quit · {repo}
-        </Text>
+      <Box paddingX={1}>
+        <Text color="gray">1-6 focus · / filter · r refresh · q quit · {repo}</Text>
       </Box>
     </Box>
   );
+}
+
+function paneError(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
