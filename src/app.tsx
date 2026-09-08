@@ -1,13 +1,42 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { Box, Text, useApp, useInput, useStdin } from "ink";
 import type { Key } from "ink";
 import Spinner from "ink-spinner";
-import type { Branch, Commit, Issue, PR, RepoStats, RepoStatus } from "./types.js";
-import { checkoutBranch, getBranches, getHistory, getMergedBranches, getRepoStats, getStatus } from "./git.js";
+import type {
+  Branch,
+  Commit,
+  Issue,
+  IssueDetail,
+  PR,
+  PRDetail,
+  RepoStats,
+  RepoStatus,
+  Scope,
+} from "./types.js";
+import {
+  checkoutBranch,
+  getBranchDiff,
+  getBranches,
+  getFileDiff,
+  getHistory,
+  getMergedBranches,
+  getRepoStats,
+  getStatus,
+  statusPaths,
+} from "./git.js";
 import { buildBranchHierarchy } from "./branchHierarchy.js";
-import { getIssues, getPRs, hasGithubRemote } from "./github.js";
+import {
+  approvePR,
+  checkoutPR,
+  getIssueDetail,
+  getIssues,
+  getPRDetail,
+  getPRs,
+  hasGithubRemote,
+  openIssueWeb,
+  openPRWeb,
+  startPRCreate,
+} from "./github.js";
 import { defaultShellCwdFile, findNearestGitRepo, readShellCwdFile } from "./repoResolver.js";
 import { getWorkspaceCwd } from "./herdrWorkspace.js";
 import { createPipeParser } from "./pipeInput.js";
@@ -27,8 +56,9 @@ import BranchesPanel, { filterBranches } from "./views/BranchesPanel.js";
 import PRsPanel, { filterPRs } from "./views/PRsPanel.js";
 import IssuesPanel, { filterIssues } from "./views/IssuesPanel.js";
 import StatusPanel from "./views/StatusPanel.js";
-
-const execFileAsync = promisify(execFile);
+import PRDetailPanel from "./views/PRDetail.js";
+import IssueDetailPanel from "./views/IssueDetail.js";
+import DiffView from "./views/DiffView.js";
 
 // Poll interval for following the workspace cwd. Kept short so `cd` in a
 // sibling pane repoints the tab within seconds; data refresh stays on the
@@ -71,6 +101,21 @@ export default function App({
   const [selB, setSelB] = useState(0);
   const [selPR, setSelPR] = useState(0);
   const [selIssue, setSelIssue] = useState(0);
+  const [selStatus, setSelStatus] = useState(0);
+  // `m` toggles list scope: this repo vs everything involving you.
+  const [scope, setScope] = useState<Scope>("repo");
+  // Detail reader: PR opens description + discussion with an info rail;
+  // issues reuse the same reader shape. `diff` is the `d` overlay for
+  // branches and changed status files — never launched from PR detail.
+  const [prDetail, setPrDetail] = useState<PRDetail | null>(null);
+  const [prDetailLoading, setPrDetailLoading] = useState(false);
+  const [prDetailError, setPrDetailError] = useState("");
+  const [issueDetail, setIssueDetail] = useState<IssueDetail | null>(null);
+  const [issueDetailLoading, setIssueDetailLoading] = useState(false);
+  const [issueDetailError, setIssueDetailError] = useState("");
+  const [detailScroll, setDetailScroll] = useState(0);
+  const [diff, setDiff] = useState<{ title: string; body: string } | null>(null);
+  const [diffScroll, setDiffScroll] = useState(0);
   // Current repo. Follows the workspace's live shell cwd (via the Herdr
   // socket CLI) so `cd` in a sibling pane repoints the TUI automatically —
   // no manual path entry. `--repo <path>` pins a fixed repo instead.
@@ -113,8 +158,8 @@ export default function App({
       getHistory(target, 100),
       getBranches(target),
       getStatus(target),
-      getPRs(target),
-      getIssues(target),
+      getPRs(target, scope),
+      getIssues(target, scope),
       hasGithubRemote(target),
       getRepoStats(target),
     ]);
@@ -163,18 +208,26 @@ export default function App({
       }
     }
     setLoading(false);
-  }, [repo, resolveLiveRepo]);
+  }, [repo, resolveLiveRepo, scope]);
 
-  // Reset per-pane selection + filters when the repo flips. Without this the
-  // old branch/PR indices can land out of range in the new repo.
+  // Reset per-pane selection + filters when the repo or scope flips. Without
+  // this the old branch/PR indices can land out of range in the new data.
   useEffect(() => {
     setSelH(0);
     setSelB(0);
     setSelPR(0);
     setSelIssue(0);
+    setSelStatus(0);
     setQuery("");
     setBranchFilter("");
-  }, [repo]);
+    setPrDetail(null);
+    setPrDetailError("");
+    setIssueDetail(null);
+    setIssueDetailError("");
+    setDetailScroll(0);
+    setDiff(null);
+    setDiffScroll(0);
+  }, [repo, scope]);
 
   useEffect(() => {
     void load();
@@ -198,6 +251,62 @@ export default function App({
     }, REPO_POLL_SECS * 1000);
     return () => clearInterval(t);
   }, [repo, resolveLiveRepo, watch, fixedRepo]);
+  const closePRDetail = (): void => {
+    setPrDetail(null);
+    setPrDetailError("");
+    setPrDetailLoading(false);
+    setDetailScroll(0);
+  };
+  const closeIssueDetail = (): void => {
+    setIssueDetail(null);
+    setIssueDetailError("");
+    setIssueDetailLoading(false);
+    setDetailScroll(0);
+  };
+  const openPRDetail = (num: number): void => {
+    setFiltering(false);
+    setError("");
+    setPrDetail(null);
+    setPrDetailError("");
+    setDetailScroll(0);
+    setPrDetailLoading(true);
+    getPRDetail(repo, num)
+      .then((d) => setPrDetail(d))
+      .catch((e: unknown) => setPrDetailError(paneError(e)))
+      .finally(() => setPrDetailLoading(false));
+  };
+  const openIssueDetail = (num: number): void => {
+    setFiltering(false);
+    setError("");
+    setIssueDetail(null);
+    setIssueDetailError("");
+    setDetailScroll(0);
+    setIssueDetailLoading(true);
+    getIssueDetail(repo, num)
+      .then((d) => setIssueDetail(d))
+      .catch((e: unknown) => setIssueDetailError(paneError(e)))
+      .finally(() => setIssueDetailLoading(false));
+  };
+  const refreshPRDetail = (num: number): void => {
+    setPrDetailLoading(true);
+    getPRDetail(repo, num)
+      .then((d) => {
+        setPrDetail(d);
+        setPrDetailError("");
+      })
+      .catch((e: unknown) => setPrDetailError(paneError(e)))
+      .finally(() => setPrDetailLoading(false));
+  };
+  const refreshIssueDetail = (num: number): void => {
+    setIssueDetailLoading(true);
+    getIssueDetail(repo, num)
+      .then((d) => {
+        setIssueDetail(d);
+        setIssueDetailError("");
+      })
+      .catch((e: unknown) => setIssueDetailError(paneError(e)))
+      .finally(() => setIssueDetailLoading(false));
+  };
   // Named so both Ink's raw-mode input and the pipe reader below share it.
   const handleKeyInput = (input: string, key: Key) => {
     // Mouse-reporting ghosts: click/wheel bytes Ink's key decoder doesn't
@@ -225,10 +334,136 @@ export default function App({
       }
       return;
     }
+    // Diff overlay (`d` for branches / status files) sits on top: scroll it
+    // or dismiss it; nothing else runs while it is open.
+    if (diff) {
+      if (key.escape || input === "q") {
+        setDiff(null);
+        setDiffScroll(0);
+        return;
+      }
+      if (input >= "1" && input <= "6") {
+        setActivePane(Number(input));
+        setDiff(null);
+        setDiffScroll(0);
+        return;
+      }
+      if (input === "j" || key.downArrow) {
+        setDiffScroll((v) => v + 1);
+        return;
+      }
+      if (input === "k" || key.upArrow) {
+        setDiffScroll((v) => Math.max(0, v - 1));
+        return;
+      }
+      return;
+    }
+    const showingPRDetail =
+      activePane === 4 && (prDetail !== null || prDetailLoading || prDetailError !== "");
+    const showingIssueDetail =
+      activePane === 5 &&
+      (issueDetail !== null || issueDetailLoading || issueDetailError !== "");
+    // PR detail: read description + discussion, then approve or check out.
+    // No merge, ready, or terminal diff commands run from here by design.
+    if (showingPRDetail) {
+      if (key.escape || input === "q") {
+        closePRDetail();
+        return;
+      }
+      if (input >= "1" && input <= "6") {
+        setActivePane(Number(input));
+        closePRDetail();
+        return;
+      }
+      if (input === "j" || key.downArrow) {
+        setDetailScroll((v) => v + 1);
+        return;
+      }
+      if (input === "k" || key.upArrow) {
+        setDetailScroll((v) => Math.max(0, v - 1));
+        return;
+      }
+      if (input === "m") {
+        setScope((s) => (s === "repo" ? "mine" : "repo"));
+        closePRDetail();
+        return;
+      }
+      if (input === "r") {
+        const num = prDetail?.number ?? filterPRs(prs, query)[Math.min(selPR, Math.max(0, filterPRs(prs, query).length - 1))]?.number;
+        if (num !== undefined) refreshPRDetail(num);
+        return;
+      }
+      if (input === "o") {
+        const num = prDetail?.number;
+        if (num !== undefined) openPRWeb(repo, num);
+        return;
+      }
+      if (input === "a") {
+        const num = prDetail?.number;
+        if (num !== undefined) {
+          setError("");
+          approvePR(repo, num)
+            .then(() => refreshPRDetail(num))
+            .catch((e: unknown) => setError(paneError(e)));
+        }
+        return;
+      }
+      if (input === "c" || key.return) {
+        const num = prDetail?.number;
+        if (num !== undefined) {
+          setError("");
+          checkoutPR(repo, num)
+            .then(() => void load())
+            .catch((e: unknown) => setError(paneError(e)));
+        }
+        return;
+      }
+      // `d` is intentionally a no-op here: PR detail never launches merge,
+      // ready, or terminal diff commands.
+      return;
+    }
+    if (showingIssueDetail) {
+      if (key.escape || input === "q") {
+        closeIssueDetail();
+        return;
+      }
+      if (input >= "1" && input <= "6") {
+        setActivePane(Number(input));
+        closeIssueDetail();
+        return;
+      }
+      if (input === "j" || key.downArrow) {
+        setDetailScroll((v) => v + 1);
+        return;
+      }
+      if (input === "k" || key.upArrow) {
+        setDetailScroll((v) => Math.max(0, v - 1));
+        return;
+      }
+      if (input === "m") {
+        setScope((s) => (s === "repo" ? "mine" : "repo"));
+        closeIssueDetail();
+        return;
+      }
+      if (input === "r") {
+        const num =
+          issueDetail?.number ??
+          filterIssues(issues, query)[Math.min(selIssue, Math.max(0, filterIssues(issues, query).length - 1))]?.number;
+        if (num !== undefined) refreshIssueDetail(num);
+        return;
+      }
+      if (input === "o") {
+        const num = issueDetail?.number;
+        if (num !== undefined) openIssueWeb(repo, num);
+        return;
+      }
+      return;
+    }
     if (input >= "1" && input <= "6") {
       setActivePane(Number(input));
       return;
     }
+    if (key.escape) return;
     if (input === "q") {
       exit();
       return;
@@ -241,11 +476,19 @@ export default function App({
       setFiltering(true);
       return;
     }
+    if (input === "m") {
+      setScope((s) => (s === "repo" ? "mine" : "repo"));
+      return;
+    }
     if (input === "j" || key.downArrow) {
       if (activePane === 1 || activePane === 2) setSelH((v) => v + 1);
       else if (activePane === 3) setSelB((v) => Math.min(v + 1, branches.length - 1));
       else if (activePane === 4) setSelPR((v) => Math.min(v + 1, prs.length - 1));
       else if (activePane === 5) setSelIssue((v) => Math.min(v + 1, issues.length - 1));
+      else if (activePane === 6) {
+        const total = status ? statusPaths(status).length : 0;
+        setSelStatus((v) => Math.min(v + 1, Math.max(0, total - 1)));
+      }
       return;
     }
     if (input === "k" || key.upArrow) {
@@ -253,11 +496,64 @@ export default function App({
       else if (activePane === 3) setSelB((v) => Math.max(0, v - 1));
       else if (activePane === 4) setSelPR((v) => Math.max(0, v - 1));
       else if (activePane === 5) setSelIssue((v) => Math.max(0, v - 1));
+      else if (activePane === 6) setSelStatus((v) => Math.max(0, v - 1));
+      return;
+    }
+    if (input === "d") {
+      if (activePane === 3) {
+        const shown = filterBranches(branches, branchFilter);
+        const b = shown[Math.min(selB, Math.max(0, shown.length - 1))];
+        if (!b || b.name === "(detached)") {
+          setError("nothing to diff");
+          return;
+        }
+        if (b.name.startsWith("remotes/")) {
+          setError("remote branch: checkout first to diff");
+          return;
+        }
+        setError("");
+        setDiffScroll(0);
+        getBranchDiff(repo, b.name)
+          .then((body) => setDiff({ title: `diff ${b.name}`, body }))
+          .catch((e: unknown) => setError(paneError(e)));
+        return;
+      }
+      if (activePane === 6) {
+        if (!status) {
+          setError("nothing to diff");
+          return;
+        }
+        const paths = statusPaths(status);
+        const sel = paths[Math.min(selStatus, Math.max(0, paths.length - 1))];
+        if (!sel) {
+          setError("working tree clean: nothing to diff");
+          return;
+        }
+        if (sel.kind === "untracked") {
+          setDiffScroll(0);
+          setDiff({ title: `diff ${sel.path}`, body: `(untracked ${sel.path}: no diff)` });
+          return;
+        }
+        setError("");
+        setDiffScroll(0);
+        getFileDiff(repo, sel.path)
+          .then((body) => setDiff({ title: `diff ${sel.path}`, body }))
+          .catch((e: unknown) => setError(paneError(e)));
+        return;
+      }
+      return;
+    }
+    if (input === "c" && activePane === 4) {
+      setError("");
+      startPRCreate(repo)
+        .then(() => void load())
+        .catch((e: unknown) => setError(paneError(e)));
       return;
     }
     if (key.return) {
       if (activePane === 3) {
-        const b = branches[selB];
+        const shown = filterBranches(branches, branchFilter);
+        const b = shown[Math.min(selB, Math.max(0, shown.length - 1))] ?? branches[selB];
         if (b && !b.name.startsWith("remotes/") && b.name !== "(detached)") {
           checkoutBranch(repo, b.name)
             .then(() => void load())
@@ -266,19 +562,15 @@ export default function App({
         return;
       }
       if (activePane === 4) {
-        const p = prs[selPR];
-        if (p)
-          execFileAsync("gh", ["pr", "view", "--web", String(p.number)], { cwd: repo }).catch(
-            () => {},
-          );
+        const shown = filterPRs(prs, query);
+        const p = shown[Math.min(selPR, Math.max(0, shown.length - 1))];
+        if (p) openPRDetail(p.number);
         return;
       }
       if (activePane === 5) {
-        const iss = issues[selIssue];
-        if (iss)
-          execFileAsync("gh", ["issue", "view", "--web", String(iss.number)], { cwd: repo }).catch(
-            () => {},
-          );
+        const shown = filterIssues(issues, query);
+        const iss = shown[Math.min(selIssue, Math.max(0, shown.length - 1))];
+        if (iss) openIssueDetail(iss.number);
         return;
       }
     }
@@ -320,6 +612,18 @@ export default function App({
   const handleMouseInput = (m: MouseEvent) => {
     if (m.button === "wheel-up" || m.button === "wheel-down") {
       const d = m.button === "wheel-up" ? -1 : 1;
+      if (diff) {
+        setDiffScroll((v) => Math.max(0, v + d));
+        return;
+      }
+      if (activePane === 4 && (prDetail || prDetailLoading || prDetailError)) {
+        setDetailScroll((v) => Math.max(0, v + d));
+        return;
+      }
+      if (activePane === 5 && (issueDetail || issueDetailLoading || issueDetailError)) {
+        setDetailScroll((v) => Math.max(0, v + d));
+        return;
+      }
       if (activePane === 1 || activePane === 2) setSelH((v) => Math.max(0, v + d));
       else if (activePane === 3)
         setSelB((v) => Math.min(Math.max(0, v + d), branches.length - 1));
@@ -327,6 +631,10 @@ export default function App({
         setSelPR((v) => Math.min(Math.max(0, v + d), prs.length - 1));
       else if (activePane === 5)
         setSelIssue((v) => Math.min(Math.max(0, v + d), issues.length - 1));
+      else if (activePane === 6 && status) {
+        const total = statusPaths(status).length;
+        setSelStatus((v) => Math.min(Math.max(0, v + d), Math.max(0, total - 1)));
+      }
       return;
     }
     if (m.button !== "left") return;
@@ -337,6 +645,7 @@ export default function App({
       if (hit) setActivePane(hit.id);
       return;
     }
+    if (diff || (activePane === 4 && (prDetail || prDetailLoading || prDetailError)) || (activePane === 5 && (issueDetail || issueDetailLoading || issueDetailError))) return;
     if (m.x < 2 || m.x > width) return;
     const dy = m.y - (tabbarY + TAB_STRIP_HEIGHT + 1);
     if (dy < 0) return;
@@ -375,6 +684,13 @@ export default function App({
         shown.map(() => 3),
       );
       if (k !== null) setSelIssue(k);
+    } else if (activePane === 6 && status) {
+      const paths = statusPaths(status).slice(0, 30);
+      const k = rowIndexAt(
+        dy,
+        paths.map(() => 1),
+      );
+      if (k !== null) setSelStatus(k);
     }
   };
 
@@ -422,6 +738,24 @@ export default function App({
     );
   }
 
+  const showingPRDetail =
+    activePane === 4 && (prDetail !== null || prDetailLoading || prDetailError !== "");
+  const showingIssueDetail =
+    activePane === 5 &&
+    (issueDetail !== null || issueDetailLoading || issueDetailError !== "");
+  const scopeLabel = scope === "mine" ? "mine" : "repo";
+  let footerHint = `1-6 focus · / filter · m scope:${scopeLabel} · r refresh · q quit · ${repo}${fixedRepo ? "" : " (auto)"}`;
+  if (diff) footerHint = `j/k scroll · q/Esc back · ${repo}`;
+  else if (showingPRDetail)
+    footerHint = `c/Enter checkout · a approve · o open · r refresh · q/Esc back · ${repo}`;
+  else if (showingIssueDetail) footerHint = `o open · r refresh · q/Esc back · ${repo}`;
+  else if (activePane === 3)
+    footerHint = `Enter checkout · d diff · / filter · m scope:${scopeLabel} · r refresh · q quit · ${repo}${fixedRepo ? "" : " (auto)"}`;
+  else if (activePane === 4)
+    footerHint = `Enter open · c create · m scope:${scopeLabel} · / filter · r refresh · q quit · ${repo}${fixedRepo ? "" : " (auto)"}`;
+  else if (activePane === 6)
+    footerHint = `j/k select · d diff · m scope:${scopeLabel} · r refresh · q quit · ${repo}${fixedRepo ? "" : " (auto)"}`;
+
   return (
     <Box flexDirection="column" width="100%">
       {loading && commits.length === 0 && !status ? (
@@ -436,13 +770,16 @@ export default function App({
         <TabBar active={activePane} />
       </Box>
       <Box flexDirection="column" flexGrow={1} paddingX={1} paddingY={1}>
-        {activePane === 1 && (
+        {diff ? (
+          <DiffView title={diff.title} body={diff.body} scroll={diffScroll} />
+        ) : null}
+        {!diff && activePane === 1 && (
           <HistoryPanel commits={commits} selected={selH} query={query} />
         )}
-        {activePane === 2 && (
+        {!diff && activePane === 2 && (
           <FlowPanel commits={commits} branches={branches} prs={prs} selected={selH} query={query} mergedNames={mergedNames} />
         )}
-        {activePane === 3 && (
+        {!diff && activePane === 3 && (
           <BranchesPanel
             branches={branches}
             selected={selB}
@@ -450,7 +787,7 @@ export default function App({
             error={paneErrors.branches}
           />
         )}
-        {activePane === 4 && (
+        {!diff && activePane === 4 && !showingPRDetail && (
           <PRsPanel
             prs={prs}
             selected={selPR}
@@ -460,7 +797,26 @@ export default function App({
             error={paneErrors.prs}
           />
         )}
-        {activePane === 5 && (
+        {!diff && activePane === 4 && showingPRDetail && (
+          <Box flexDirection="column">
+            {prDetailLoading && !prDetail ? (
+              <Box>
+                <Text color="cyan">
+                  <Spinner type="dots" />
+                </Text>
+                <Text> Loading PR…</Text>
+              </Box>
+            ) : null}
+            {prDetailError && !prDetail ? (
+              <Box flexDirection="column">
+                <Text color="red">{truncateToWidth(prDetailError, width)}</Text>
+                <Text color="gray">r retries · q/Esc back</Text>
+              </Box>
+            ) : null}
+            {prDetail ? <PRDetailPanel detail={prDetail} scroll={detailScroll} /> : null}
+          </Box>
+        )}
+        {!diff && activePane === 5 && !showingIssueDetail && (
           <IssuesPanel
             issues={issues}
             selected={selIssue}
@@ -470,7 +826,28 @@ export default function App({
             error={paneErrors.issues}
           />
         )}
-        {activePane === 6 && <StatusPanel status={status} error={paneErrors.status} stats={repoStats} />}
+        {!diff && activePane === 5 && showingIssueDetail && (
+          <Box flexDirection="column">
+            {issueDetailLoading && !issueDetail ? (
+              <Box>
+                <Text color="cyan">
+                  <Spinner type="dots" />
+                </Text>
+                <Text> Loading issue…</Text>
+              </Box>
+            ) : null}
+            {issueDetailError && !issueDetail ? (
+              <Box flexDirection="column">
+                <Text color="red">{truncateToWidth(issueDetailError, width)}</Text>
+                <Text color="gray">r retries · q/Esc back</Text>
+              </Box>
+            ) : null}
+            {issueDetail ? <IssueDetailPanel detail={issueDetail} scroll={detailScroll} /> : null}
+          </Box>
+        )}
+        {!diff && activePane === 6 && (
+          <StatusPanel status={status} error={paneErrors.status} stats={repoStats} selected={selStatus} />
+        )}
       </Box>
       {filtering ? (
         <Box paddingX={1}>
@@ -485,10 +862,15 @@ export default function App({
           <Text color="red">{truncateToWidth(error, width)}</Text>
         </Box>
       ) : null}
+      {(prDetailError && prDetail) || (issueDetailError && issueDetail) ? (
+        <Box paddingX={1}>
+          <Text color="red">
+            {truncateToWidth((prDetailError || issueDetailError) as string, width)}
+          </Text>
+        </Box>
+      ) : null}
       <Box paddingX={1}>
-        <Text color="gray">
-          {truncateToWidth(`1-6 focus · / filter · r refresh · q quit · ${repo}${fixedRepo ? "" : " (auto)"}`, width)}
-        </Text>
+        <Text color="gray">{truncateToWidth(footerHint, width)}</Text>
       </Box>
     </Box>
   );

@@ -348,3 +348,66 @@ export async function getRepoStats(repo: string): Promise<RepoStats> {
   }
   return stats;
 }
+
+/** `d` on a branch: recent log plus diff stat against the merge base.
+ *  Best-effort text for the diff overlay; throws a one-line message. */
+export async function getBranchDiff(repo: string, branch: string): Promise<string> {
+  try {
+    const [log, stat] = await Promise.all([
+      runGit(repo, ["log", "--oneline", "-20", branch, "--"]).then((r) => r.stdout, () => ""),
+      runGit(repo, ["diff", "--stat", `${branch}@{u}...${branch}`]).then(
+        (r) => r.stdout,
+        () => "",
+      ),
+    ]);
+    const upstreamStat = stat.trim();
+    const fallbackStat = upstreamStat
+      ? ""
+      : await runGit(repo, ["diff", "--stat", "HEAD"]).then((r) => r.stdout, () => "");
+    const lines = [`$ git log --oneline -20 ${branch}`, log.trim() || "(no commits)"];
+    const statText = (upstreamStat || fallbackStat).trim();
+    if (statText) lines.push("", `$ git diff --stat`, statText);
+    return lines.join("\n");
+  } catch (e) {
+    throw new Error(errText(e).trim().split("\n")[0] ?? `git diff ${branch} failed`);
+  }
+}
+
+/** `d` on a changed status file: `git diff HEAD -- <path>` capped for the
+ *  overlay. Untracked files have no diff — callers show `(untracked)` text. */
+export async function getFileDiff(repo: string, path: string, limit = 100): Promise<string> {
+  try {
+    const { stdout } = await runGit(repo, ["diff", "HEAD", "--", path]);
+    const out = stdout.trim();
+    if (!out) return `(no diff for ${path})`;
+    const lines = out.split("\n").slice(0, limit);
+    return [`$ git diff HEAD -- ${path}`, ...lines].join("\n");
+  } catch (e) {
+    throw new Error(errText(e).trim().split("\n")[0] ?? `git diff ${path} failed`);
+  }
+}
+
+/** Ordered status paths for `d` + status selection: staged, unstaged, untracked. */
+export function statusPaths(status: RepoStatus): { path: string; kind: string }[] {
+  const seen = new Set<string>();
+  const out: { path: string; kind: string }[] = [];
+  for (const f of status.staged) {
+    if (!seen.has(f.path)) {
+      seen.add(f.path);
+      out.push({ path: f.path, kind: "staged" });
+    }
+  }
+  for (const f of status.unstaged) {
+    if (!seen.has(f.path)) {
+      seen.add(f.path);
+      out.push({ path: f.path, kind: "unstaged" });
+    }
+  }
+  for (const p of status.untracked) {
+    if (!seen.has(p)) {
+      seen.add(p);
+      out.push({ path: p, kind: "untracked" });
+    }
+  }
+  return out;
+}

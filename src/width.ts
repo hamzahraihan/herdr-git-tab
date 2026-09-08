@@ -78,3 +78,18 @@ export function scaleBars(values: number[], maxWidth: number): number[] {
     return Math.max(1, Math.round((v / max) * maxWidth));
   });
 }
+
+/** Detail reader breakpoint: wide terminals show discussion (2/3) + info rail
+ *  (1/3) side by side; narrow terminals stack the same content. */
+export const DETAIL_WIDE_MIN = 100;
+
+/** True when the detail reader should split into discussion + rail. */
+export function isWideLayout(width: number = terminalWidth()): boolean {
+  return width >= DETAIL_WIDE_MIN;
+}
+
+/** Split a wide terminal into discussion + rail widths (2/3 + 1/3). */
+export function detailColumns(width: number): { discussion: number; rail: number } {
+  const rail = Math.max(24, Math.floor(width / 3));
+  return { discussion: Math.max(20, width - rail - 3), rail };
+}

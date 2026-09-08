@@ -39,6 +39,56 @@ export type Issue = {
   url: string;
 };
 
+export type Scope = "repo" | "mine";
+
+export type DetailComment = {
+  author: string;
+  body: string;
+  createdAt?: string;
+};
+
+export type DetailReview = {
+  author: string;
+  state: string;
+  body?: string;
+};
+
+export type PRDetail = {
+  number: number;
+  title: string;
+  author: string;
+  state: string;
+  url: string;
+  body: string;
+  headRefName: string;
+  baseRefName: string;
+  checks: string;
+  labels: string[];
+  mergeable: string;
+  mergeStateStatus: string;
+  reviewDecision: string;
+  reviews: DetailReview[];
+  comments: DetailComment[];
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  commits: number;
+  isDraft: boolean;
+};
+
+export type IssueDetail = {
+  number: number;
+  title: string;
+  author: string;
+  state: string;
+  url: string;
+  body: string;
+  labels: string[];
+  assignees: string[];
+  comments: DetailComment[];
+};
+
+
 export type FileEntry = {
   path: string;
   staged: string;
