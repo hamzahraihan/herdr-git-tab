@@ -47,13 +47,15 @@ describe("createMouseParser", () => {
 });
 
 describe("tabRanges", () => {
-  it("lays six adjacent ranges starting at column 2", () => {
-    const ranges = tabRanges();
+  it("right-aligns six contiguous ranges ending at width - 1", () => {
+    const width = 80;
+    const ranges = tabRanges(width);
     expect(ranges).toHaveLength(6);
-    expect(ranges[0]).toEqual({ id: 1, x0: 2, x1: 2 + "Commits".length + 3 });
+    expect(ranges[0]).toEqual({ id: 1, x0: width - 46, x1: width - 46 + "Commits".length + 1 });
     for (let k = 1; k < ranges.length; k++) {
-      expect(ranges[k]!.x0).toBe(ranges[k - 1]!.x1 + 2);
+      expect(ranges[k]!.x0).toBe(ranges[k - 1]!.x1 + 1);
     }
+    expect(ranges[5]!.x1).toBe(width - 1);
   });
 });
 
