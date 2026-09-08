@@ -10,7 +10,8 @@
 //   SGR (1006):  ESC [ < Cb ; Cx ; Cy M  (press) / m (release)
 //   X10:         ESC [ M Cb Cx Cy        (bytes offset by 32; Cb 3 = release)
 // Coordinates are 1-based terminal cells, matching Herdr/xterm behavior.
-import { TABS } from "./views/TabBar.js";
+import { TABS, tabCellWidth, tabsTotalWidth } from "./views/TabBar.js";
+import { terminalWidth } from "./width.js";
 
 const ESC = String.fromCharCode(27);
 
@@ -130,15 +131,17 @@ export interface TabHit {
   x1: number;
 }
 
-/** Column ranges of the six tab-strip items. The strip lives in a
- *  `paddingX={1}` box, so the first item starts at column 2; each item is
- *  `  label  ` plus a one-cell right margin. */
-export function tabRanges(): TabHit[] {
-  let x = 2;
+/** Column ranges of the six tab-strip items. The header strip right-aligns
+ *  the tabs inside a `paddingX={1}` box, so the last cell ends at column
+ *  `width - 1` and ranges run contiguously leftwards; each cell is
+ *  ` label ` (see TabBar `tabCellWidth`). */
+export function tabRanges(width: number = terminalWidth()): TabHit[] {
+  const total = tabsTotalWidth();
+  let x = Math.max(2, width - total);
   return TABS.map((t) => {
-    const w = t.label.length + 4;
+    const w = tabCellWidth(t.label);
     const hit = { id: t.id, x0: x, x1: x + w - 1 };
-    x += w + 1;
+    x += w;
     return hit;
   });
 }
