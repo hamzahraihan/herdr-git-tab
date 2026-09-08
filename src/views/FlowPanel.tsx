@@ -1,44 +1,54 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { Branch, Commit, PR } from "../types.js";
-import { buildArrowGraph, ArrowRow } from "../arrowGraph.js";
 import { filterCommits } from "./HistoryPanel.js";
+import { cellWidth, terminalWidth, truncateToWidth } from "../width.js";
+import { SELECTED_BG } from "../theme.js";
+import {
+  buildBranchHierarchy,
+  renderBranchLine,
+  type BranchRow,
+} from "../branchHierarchy.js";
 
-function prNumberForRef(refs: string[]): number | null {
-  for (const r of refs) {
-    const m = /pull\/(\d+)\//.exec(r);
-    if (m) return Number(m[1]);
-  }
-  return null;
+/** Cap rows so connector lines + rows always fit the viewport. */
+const MAX_ROWS = 20;
+
+export function flowVisibleRows(
+  commits: Commit[],
+  branches: Branch[],
+  prs: PR[],
+  query: string,
+  mergedNames: Set<string>,
+  selected: number,
+): { view: BranchRow[]; start: number; safe: number } {
+  const filtered = filterCommits(commits, query);
+  const currentBranch = branches.find((b) => b.current)?.name ?? null;
+  const { rows } = buildBranchHierarchy(filtered, branches, prs, currentBranch);
+  // Branches fully merged into the trunk rejoin it visually (──╯ + tag).
+  const trunk = rows.find((r) => r.isMain)?.name ?? null;
+  const view = rows.map((row) =>
+    row.name !== trunk && trunk !== null && mergedNames.has(row.name)
+      ? { ...row, merged: true, mergedInto: trunk }
+      : row,
+  );
+  const safe = Math.min(selected, view.length - 1);
+  const start = Math.max(0, Math.min(safe - 8, view.length - MAX_ROWS));
+  return { view: view.slice(start, start + MAX_ROWS), start, safe };
 }
-
-function prForBranch(branchName: string, prs: PR[]): PR | undefined {
-  return prs.find((p) => p.branch === branchName);
-}
-
-function aheadBehind(branchName: string, branches: Branch[]): { ahead: number; behind: number } {
-  const b = branches.find((x) => x.name === branchName);
-  return { ahead: b?.ahead ?? 0, behind: b?.behind ?? 0 };
-}
-
-function describeRef(ref: string): { label: string; prNumber: number | null } {
-  const m = /pull\/(\d+)\/head/.exec(ref);
-  if (m) return { label: ref.replace(`pull/${m[1]}/head:`, "").trim(), prNumber: Number(m[1]) };
-  return { label: ref, prNumber: null };
-}
-
 export default function FlowPanel({
   commits,
   branches,
   prs,
   selected,
   query,
+  mergedNames,
 }: {
   commits: Commit[];
   branches: Branch[];
   prs: PR[];
   selected: number;
   query: string;
+  mergedNames: Set<string>;
 }) {
   const filtered = filterCommits(commits, query);
   if (filtered.length === 0) {
@@ -48,49 +58,140 @@ export default function FlowPanel({
       </Box>
     );
   }
-  const rows = buildArrowGraph(filtered);
-  const safe = Math.min(selected, rows.length - 1);
-  const start = Math.max(0, Math.min(safe - 8, rows.length - 30));
-  const visible = rows.slice(start, start + 30);
+  const { view, start, safe } = flowVisibleRows(
+    commits,
+    branches,
+    prs,
+    query,
+    mergedNames,
+    selected,
+  );
+  if (view.length === 0) {
+    return (
+      <Box flexDirection="column">
+        <Text color="gray">No branches to display</Text>
+      </Box>
+    );
+  }
+  const width = terminalWidth();
   return (
     <Box flexDirection="column">
-      {visible.map((r, i) => {
-        const idx = start + i;
-        return <FlowRow key={r.commit.hash} row={r} branches={branches} prs={prs} active={idx === safe} />;
-      })}
+      {view.map((row, i) => (
+        <React.Fragment key={row.name}>
+          {row.isMain ? null : (
+            <Text color="gray">{"    \\"}</Text>
+          )}
+          <BranchRowView row={row} active={start + i === safe} width={width} />
+        </React.Fragment>
+      ))}
     </Box>
   );
 }
 
-function FlowRow({
+function BranchRowView({
   row,
-  branches,
-  prs,
   active,
+  width,
 }: {
-  row: ArrowRow;
-  branches: Branch[];
-  prs: PR[];
+  row: BranchRow;
   active: boolean;
+  width: number;
 }) {
-  const labels: string[] = [];
-  for (const ref of row.commit.refs) {
-    const { label, prNumber } = describeRef(ref);
-    const { ahead, behind } = aheadBehind(label, branches);
-    const aheadTag = ahead > 0 ? ` ↑${ahead}` : "";
-    const behindTag = behind > 0 ? ` ↓${behind}` : "";
-    const prTag = prNumber !== null ? ` PR#${prNumber}` : "";
-    const prBadge = prTag ? "" : "";
-    const prObj = prForBranch(label, prs);
-    const prObjTag = prObj ? ` PR#${prObj.number}` : "";
-    labels.push(`${label}${aheadTag}${behindTag}${prTag}${prObjTag}${prBadge}`);
+  // Badges after the lane, ` · `-separated like `↑2 · PR #14`.
+  const bg = active ? SELECTED_BG : undefined;
+  const sep = (
+    <Text color="gray" backgroundColor={bg}>
+      {" · "}
+    </Text>
+  );
+  const badgeNodes: React.ReactNode[] = [];
+  const badgeTexts: string[] = [];
+  const sync =
+    (row.ahead > 0 ? `↑${row.ahead}` : "") + (row.behind > 0 ? `↓${row.behind}` : "");
+  if (sync) {
+    badgeNodes.push(
+      <Text key="sync" color="gray" backgroundColor={bg}>
+        {" "}
+        {sync}
+      </Text>,
+    );
+    badgeTexts.push(sync);
   }
-  const labelStr = labels.length > 0 ? `  ${labels.join(" · ")}` : "";
+  if (row.prNumber !== null) {
+    badgeNodes.push(
+      badgeNodes.length > 0 ? (
+        <React.Fragment key="s1">{sep}</React.Fragment>
+      ) : (
+        <Text key="s1" backgroundColor={bg}>
+          {" "}
+        </Text>
+      ),
+    );
+    badgeNodes.push(
+      <Text key="pr" bold color="yellow" backgroundColor={bg}>
+        PR #{row.prNumber}
+      </Text>,
+    );
+    badgeTexts.push(`PR #${row.prNumber}`);
+  }
+  if (row.merged && row.mergedInto) {
+    const tag = `merged → ${row.mergedInto}`;
+    badgeNodes.push(
+      badgeNodes.length > 0 ? (
+        <React.Fragment key="s2">{sep}</React.Fragment>
+      ) : (
+        <Text key="s2" backgroundColor={bg}>
+          {" "}
+        </Text>
+      ),
+    );
+    badgeNodes.push(
+      <Text key="merged" color="gray" backgroundColor={bg}>
+        {tag}
+      </Text>,
+    );
+    badgeTexts.push(tag);
+  }
+  const tailWidth = badgeTexts.length > 0 ? cellWidth(` ${badgeTexts.join(" · ")}`) : 0;
+  // The graph lane is ~2 cells per commit and easily exceeds the terminal,
+  // which desyncs Ink's frame erase. Budget it against the other segments so
+  // the whole row is exactly one visual row; a merged lane rejoins the trunk
+  // with ──╯ instead of running on with ──>.
+  const name = truncateToWidth(row.name, 48);
+  const suffix = row.merged ? "──╯" : row.isMain ? "──>" : "";
+  const lineBudget = Math.max(8, width - cellWidth(name) - tailWidth - 3);
+  const body = truncateToWidth(
+    renderBranchLine(row.commits, false, new Set(row.merges)),
+    Math.max(8, lineBudget - suffix.length),
+  );
+  const lane = row.commits.length === 0 && row.merged ? "──╯" : `${body}${suffix}`;
+  const nameColor = row.isMain ? "green" : active ? "white" : row.merged ? "gray" : "cyan";
   return (
-    <Text color={active ? "white" : undefined} inverse={active}>
-      {row.prefix}
-      {row.commit.shortHash}
-      {labelStr}
+    <Box flexDirection="row">
+      <Text bold={row.isMain || active} color={nameColor} backgroundColor={bg}>
+        {name}{" "}
+      </Text>
+      <LaneGlyphs lane={lane} backgroundColor={bg} />
+      {badgeNodes}
+    </Box>
+  );
+}
+
+/** Lane connectors gray, commit nodes white so merges (◆) stand out. */
+function LaneGlyphs({ lane, backgroundColor }: { lane: string; backgroundColor?: string }) {
+  const parts = lane.split(/([●◆…])/g);
+  return (
+    <Text color="gray" backgroundColor={backgroundColor}>
+
+      {parts.map((part, i) =>
+        part === "●" || part === "◆" ? (
+          <Text key={i} color="white">
+            {part}
+          </Text>
+        ) : (
+          <Text key={i}>{part}</Text>
+        ),
+      )}
     </Text>
   );
 }
