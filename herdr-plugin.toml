@@ -21,9 +21,12 @@ title = "Open Git Tab"
 contexts = ["workspace"]
 command = ["node", "dist/bin/open-tab.js"]
 
-# Tab command the user can launch from a workspace.
+
+# Tab command the user can launch from a workspace. Runs through a wrapper
+# that binds to the workspace's live shell cwd before exec'ing the TUI (the
+# tab keeps following it automatically from there).
 [[panes]]
 id = "git-tab"
 title = "Git"
 placement = "tab"
-command = ["node", "dist/cli.js"]
+command = ["node", "dist/bin/launch-tab.js"]

@@ -1,8 +1,16 @@
 #!/usr/bin/env node
-// Right-click "Open Git Tab" action: opens the git tab in the workspace's cwd.
+// "Open Git Tab" action: opens the git tab in the calling workspace.
+//
+// The pane MUST spawn with the plugin directory as its cwd: the `[[panes]]`
+// entrypoint (`node dist/bin/launch-tab.js`) is relative and Node resolves
+// it against the pane cwd, so passing the workspace dir here breaks the
+// launch with MODULE_NOT_FOUND. `launch-tab` re-binds to the workspace's
+// live shell cwd on boot and keeps following it from there.
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
-const cwd = process.env.HERDR_WORKSPACE_CWD ?? process.cwd();
+const pluginRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 try {
   const out = execFileSync(
@@ -18,7 +26,7 @@ try {
       "--placement",
       "tab",
       "--cwd",
-      cwd,
+      pluginRoot,
     ],
     { stdio: "inherit", env: process.env },
   );
