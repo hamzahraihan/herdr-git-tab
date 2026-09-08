@@ -4,19 +4,28 @@ import { promisify } from "node:util";
 import React from "react";
 import { render } from "ink";
 import App from "./app.js";
+import { findNearestGitRepo } from "./repoResolver.js";
 
 const execFileAsync = promisify(execFile);
 
-function parseArgs(argv: string[]): { repo: string; refreshSecs: number; watch: boolean } {
-  let repo = process.cwd();
+function parseArgs(argv: string[]): {
+  initialRepo: string;
+  fixedRepo: boolean;
+  refreshSecs: number;
+  watch: boolean;
+} {
+  let initialRepo = findNearestGitRepo(process.cwd()) ?? process.cwd();
+  let fixedRepo = false;
   let refreshSecs = 30;
   let watch = true;
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--repo" && i + 1 < argv.length) {
-      repo = argv[++i];
+      initialRepo = argv[++i]!;
+      fixedRepo = true;
     } else if (a.startsWith("--repo=")) {
-      repo = a.slice("--repo=".length);
+      initialRepo = a.slice("--repo=".length);
+      fixedRepo = true;
     } else if (a === "--refresh" && i + 1 < argv.length) {
       refreshSecs = Number(argv[++i]);
     } else if (a.startsWith("--refresh=")) {
@@ -24,12 +33,15 @@ function parseArgs(argv: string[]): { repo: string; refreshSecs: number; watch: 
     } else if (a === "--no-watch") {
       watch = false;
     } else if (a === "--help" || a === "-h") {
-      console.log("Usage: herdr-git-tab [--repo <path>] [--refresh <secs>] [--no-watch]");
+      console.log(
+        "Usage: herdr-git-tab [--repo <path>] [--refresh <secs>] [--no-watch]\n" +
+          "Follows the active Herdr workspace automatically. --repo <path> pins a fixed repo instead.",
+      );
       process.exit(0);
     }
   }
   if (!Number.isFinite(refreshSecs) || refreshSecs < 0) refreshSecs = 30;
-  return { repo, refreshSecs, watch };
+  return { initialRepo, fixedRepo, refreshSecs, watch };
 }
 
 async function nonTtyFallback(repo: string): Promise<number> {
@@ -49,10 +61,12 @@ async function nonTtyFallback(repo: string): Promise<number> {
   }
 }
 
-const { repo, refreshSecs, watch } = parseArgs(process.argv);
+const { initialRepo, fixedRepo, refreshSecs, watch } = parseArgs(process.argv);
 
 if (!process.stdout.isTTY) {
-  process.exit(await nonTtyFallback(repo));
+  process.exit(await nonTtyFallback(initialRepo));
 }
 
-render(<App repo={repo} refreshSecs={refreshSecs} watch={watch} />);
+render(
+  <App initialRepo={initialRepo} fixedRepo={fixedRepo} refreshSecs={refreshSecs} watch={watch} />,
+);
