@@ -116,6 +116,10 @@ export default function App({
   const [detailScroll, setDetailScroll] = useState(0);
   const [diff, setDiff] = useState<{ title: string; body: string } | null>(null);
   const [diffScroll, setDiffScroll] = useState(0);
+  // Spinner label while a checkout runs (`git checkout` / `gh pr checkout`).
+  // `load()` only shows its own spinner on first paint, so without this the
+  // tab gives no feedback while a checkout is in flight.
+  const [checkingOut, setCheckingOut] = useState<string | null>(null);
   // Current repo. Follows the workspace's live shell cwd (via the Herdr
   // socket CLI) so `cd` in a sibling pane repoints the TUI automatically —
   // no manual path entry. `--repo <path>` pins a fixed repo instead.
@@ -227,6 +231,7 @@ export default function App({
     setDetailScroll(0);
     setDiff(null);
     setDiffScroll(0);
+    setCheckingOut(null);
   }, [repo, scope]);
 
   useEffect(() => {
@@ -410,11 +415,13 @@ export default function App({
       }
       if (input === "c" || key.return) {
         const num = prDetail?.number;
-        if (num !== undefined) {
+        if (num !== undefined && !checkingOut) {
           setError("");
+          setCheckingOut(`PR #${num}`);
           checkoutPR(repo, num)
             .then(() => void load())
-            .catch((e: unknown) => setError(paneError(e)));
+            .catch((e: unknown) => setError(paneError(e)))
+            .finally(() => setCheckingOut(null));
         }
         return;
       }
@@ -554,10 +561,13 @@ export default function App({
       if (activePane === 3) {
         const shown = filterBranches(branches, branchFilter);
         const b = shown[Math.min(selB, Math.max(0, shown.length - 1))] ?? branches[selB];
-        if (b && !b.name.startsWith("remotes/") && b.name !== "(detached)") {
+        if (b && !b.name.startsWith("remotes/") && b.name !== "(detached)" && !checkingOut) {
+          setError("");
+          setCheckingOut(b.name);
           checkoutBranch(repo, b.name)
             .then(() => void load())
-            .catch((e: unknown) => setError(paneError(e)));
+            .catch((e: unknown) => setError(paneError(e)))
+            .finally(() => setCheckingOut(null));
         }
         return;
       }
@@ -855,6 +865,14 @@ export default function App({
             /{truncateToWidth(activePane === 3 ? branchFilter : query, Math.max(8, width - 16))}
           </Text>
           <Text color="gray"> (esc/ent done)</Text>
+        </Box>
+      ) : null}
+      {checkingOut ? (
+        <Box paddingX={1}>
+          <Text color="cyan">
+            <Spinner type="dots" />
+          </Text>
+          <Text> {truncateToWidth(`Checking out ${checkingOut}…`, width)}</Text>
         </Box>
       ) : null}
       {error ? (
