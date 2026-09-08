@@ -12,6 +12,20 @@ export function terminalWidth(): number {
   return typeof cols === "number" && cols > 0 ? cols : 80;
 }
 
+/** Live terminal height, with a sane fallback when unknown. */
+export function terminalHeight(): number {
+  const rows = process.stdout.rows;
+  if (typeof rows === "number" && rows > 0) return rows;
+  const env = Number(process.env.LINES);
+  return !Number.isNaN(env) && env > 0 ? env : 40;
+}
+
+/** Available content rows for the active pane, based on live terminal height
+ *  minus persistent chrome (header bar 2, padding 2, footer key bar 1, buffer 1). */
+export function contentHeight(overhead = 6): number {
+  return Math.max(8, terminalHeight() - overhead);
+}
+
 function charWidth(codePoint: number): number {
   if (
     (codePoint >= 0x0300 && codePoint <= 0x036f) ||
