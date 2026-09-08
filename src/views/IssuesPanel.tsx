@@ -1,7 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { Issue } from "../types.js";
-import { terminalWidth, truncateToWidth } from "../width.js";
+import { contentHeight, terminalWidth, truncateToWidth } from "../width.js";
 import { SELECTED_BG } from "../theme.js";
 
 export function filterIssues(issues: Issue[], query: string): Issue[] {
@@ -61,9 +61,10 @@ export default function IssuesPanel({
   }
   const safe = Math.min(selected, filtered.length - 1);
   const width = terminalWidth();
+  const limit = Math.max(4, Math.floor(contentHeight() / 3));
   return (
     <Box flexDirection="column">
-      {filtered.slice(0, 20).map((iss, idx) => {
+      {filtered.slice(0, limit).map((iss, idx) => {
         const active = idx === safe;
         const status = statusLabel(iss.state);
         const labels = iss.labels.length > 0 ? iss.labels.map((l) => `[${l}]`).join(" ") : "";
