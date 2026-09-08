@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import type {
   DetailComment,
@@ -332,20 +333,184 @@ export function openIssueWeb(repo: string, number: number): void {
   execFileAsync("gh", ["issue", "view", "--web", String(number)], { cwd: repo }).catch(() => {});
 }
 
-/** Start `gh pr create` for the PR list (`c`). Interactive: inherits the
- *  terminal so prompts render; resolves on exit, rejects on failure. */
-export function startPRCreate(repo: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn("gh", ["pr", "create"], {
+/** First non-empty line of git/gh output: the actionable part, without the
+ *  usage dump that follows. Falls back when there is nothing to show. */
+function firstLine(text: string, fallback: string): string {
+  const line = text
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
+  return line ?? fallback;
+}
+
+function spawnExitCode(e: unknown): string | undefined {
+  if (e !== null && typeof e === "object" && "code" in e) {
+    const code: unknown = e.code;
+    return typeof code === "string" ? code : undefined;
+  }
+  return undefined;
+}
+
+function spawnGhError(e: unknown): Error {
+  if (spawnExitCode(e) === "ENOENT") return new Error("GH_UNAVAILABLE: gh not found on PATH");
+  return new Error(e instanceof Error ? e.message : String(e));
+}
+
+function gitUnavailable(e: unknown): Error | null {
+  return spawnExitCode(e) === "ENOENT"
+    ? new Error("GIT_UNAVAILABLE: git not found on PATH")
+    : null;
+}
+
+/** Name of the remote pointing at github.com, or null when there is none. */
+async function githubRemoteName(repo: string): Promise<string | null> {
+  const { stdout } = await execFileAsync("git", ["remote", "-v"], {
+    cwd: repo,
+    timeout: TIMEOUT,
+  });
+  for (const line of stdout.split("\n")) {
+    if (!line.includes("github.com")) continue;
+    const name = line.split(/\s+/)[0];
+    if (name) return name;
+  }
+  return null;
+}
+
+/** Fast fail on the states where `gh pr create` can only exit 1, so the
+ *  footer says why instead of `exited with code 1`. */
+async function prCreatePreflight(repo: string): Promise<{ remote: string }> {
+  let branch = "";
+  try {
+    const out = await execFileAsync("git", ["branch", "--show-current"], {
       cwd: repo,
-      stdio: "inherit",
+      timeout: TIMEOUT,
     });
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      if (code === 0) resolve();
+    branch = out.stdout.trim();
+  } catch (e) {
+    throw gitUnavailable(e) ?? new Error(firstLine(errText(e), "git branch --show-current failed"));
+  }
+  if (!branch) throw new Error("detached HEAD: checkout a branch first, then press c again");
+  let remote: string | null = null;
+  try {
+    remote = await githubRemoteName(repo);
+  } catch (e) {
+    throw gitUnavailable(e) ?? new Error(firstLine(errText(e), "git remote -v failed"));
+  }
+  if (!remote)
+    throw new Error("no GitHub remote: add one (git remote add origin <url>), then press c again");
+  // Best-effort: an open PR for this branch means create would fail. Any
+  // lookup failure is ignored — create itself reports the real error.
+  let existing: number | undefined;
+  try {
+    const { stdout } = await execFileAsync(
+      "gh",
+      ["pr", "list", "--head", branch, "--state", "open", "--json", "number", "--limit", "1"],
+      { cwd: repo, timeout: TIMEOUT },
+    );
+    const parsed: unknown = JSON.parse(stdout);
+    if (Array.isArray(parsed)) {
+      const first: unknown = parsed[0];
+      if (first !== null && typeof first === "object" && "number" in first) {
+        const num: unknown = first.number;
+        existing = typeof num === "number" ? num : undefined;
+      }
+    }
+  } catch {
+    existing = undefined;
+  }
+  if (existing !== undefined)
+    throw new Error(`PR #${existing} already exists for '${branch}' (Enter opens it)`);
+  return { remote };
+}
+
+/** Terminal path: prompts render, stdin answers. stderr is piped (not
+ *  inherited) so gh's reason survives Ink's repaint on failure. */
+function runInteractivePRCreate(repo: string): Promise<string> {
+  // Executor form: Node ≥ 20 baseline has no Promise.withResolvers (ES2024/Node 22+).
+  return new Promise((resolve, reject) => {
+    let child: ChildProcess;
+    try {
+      child = spawn("gh", ["pr", "create"], {
+        cwd: repo,
+        stdio: ["inherit", "inherit", "pipe"],
+      });
+    } catch (e) {
+      reject(spawnGhError(e));
+      return;
+    }
+    let settled = false;
+    let stderr = "";
+    child.stderr?.on("data", (d: unknown) => {
+      stderr += typeof d === "string" ? d : String(d);
+    });
+    child.on("error", (e: unknown) => {
+      if (settled) return;
+      settled = true;
+      reject(spawnGhError(e));
+    });
+    child.on("exit", (code, signal) => {
+      if (settled) return;
+      settled = true;
+      if (code === 0) resolve("");
+      else if (stderr.trim()) reject(new Error(firstLine(stderr, "gh pr create failed")));
+      else if (signal) reject(new Error(`gh pr create killed by ${signal}`));
       else reject(new Error(`gh pr create exited with code ${code ?? "?"}`));
     });
   });
+}
+
+/** Herdr-pane path: stdin is a pipe, so gh's prompts can never be answered.
+ *  Push the branch when it has no upstream, then create non-interactively
+ *  from the commits. Resolves with the new PR URL. */
+async function runHeadlessPRCreate(repo: string, remote: string): Promise<string> {
+  let hasUpstream = true;
+  try {
+    await execFileAsync("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], {
+      cwd: repo,
+      timeout: TIMEOUT,
+    });
+  } catch {
+    hasUpstream = false;
+  }
+  if (!hasUpstream) {
+    try {
+      await execFileAsync("git", ["push", "-u", remote, "HEAD"], {
+        cwd: repo,
+        timeout: TIMEOUT,
+        // Fail fast instead of hanging on a credential prompt no one can answer.
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      });
+    } catch (e) {
+      throw (
+        gitUnavailable(e) ??
+        new Error(`${firstLine(errText(e), "git push failed")} — push the branch, then press c again`)
+      );
+    }
+  }
+  try {
+    const { stdout } = await execFileAsync("gh", ["pr", "create", "--fill"], {
+      cwd: repo,
+      timeout: TIMEOUT,
+    });
+    return stdout.trim();
+  } catch (e) {
+    throw toUnavailable(e) ?? new Error(firstLine(errText(e), "gh pr create --fill failed"));
+  }
+}
+
+/** Start `gh pr create` for the PR list (`c`). Terminal stdin (a TTY) keeps
+ *  the interactive prompts; piped stdin (Herdr pane) pushes the branch when
+ *  needed and creates with `gh pr create --fill` instead, since prompts
+ *  there always fail. Resolves with the new PR URL ("" when the interactive
+ *  run already printed it); rejects with gh's own message. */
+export async function startPRCreate(
+  repo: string,
+  opts?: { interactive?: boolean },
+): Promise<string> {
+  const { remote } = await prCreatePreflight(repo);
+  const interactive = opts?.interactive ?? process.stdin.isTTY === true;
+  if (interactive) return runInteractivePRCreate(repo);
+  return runHeadlessPRCreate(repo, remote);
 }
 
 /** True when the repo has a github.com remote. Best-effort: errors mean false. */
