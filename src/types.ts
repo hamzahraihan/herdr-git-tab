@@ -16,6 +16,8 @@ export type Branch = {
   ahead: number;
   behind: number;
   lastCommit: string;
+  /** ISO timestamp of the branch tip; absent when unknown (parse paths). */
+  lastCommitDate?: string;
 };
 
 export type PR = {
@@ -50,4 +52,21 @@ export type RepoStatus = {
   staged: FileEntry[];
   unstaged: FileEntry[];
   untracked: string[];
+};
+
+export type AuthorStat = {
+  name: string;
+  count: number;
+};
+
+export type RepoStats = {
+  /** Human display form, e.g. github.com/user/repo. Null when no origin. */
+  remote: string | null;
+  /** Total commits across all refs. */
+  total: number;
+  /** ISO timestamps bounding history; null when unknown. */
+  oldest: string | null;
+  newest: string | null;
+  /** Authors by commit count, descending. */
+  authors: AuthorStat[];
 };
