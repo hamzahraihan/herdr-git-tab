@@ -1,6 +1,8 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { PR } from "../types.js";
+import { terminalWidth, truncateToWidth } from "../width.js";
+import { SELECTED_BG } from "../theme.js";
 
 export function filterPRs(prs: PR[], query: string): PR[] {
   const q = query.trim().toLowerCase();
@@ -59,6 +61,7 @@ export default function PRsPanel({
     );
   }
   const safe = Math.min(selected, filtered.length - 1);
+  const width = terminalWidth();
   return (
     <Box flexDirection="column">
       {filtered.slice(0, 30).map((p, i) => {
@@ -66,13 +69,13 @@ export default function PRsPanel({
         const status = statusTag(p.checks);
         return (
           <Box key={p.number} flexDirection="column">
-            <Text color={active ? "white" : undefined} inverse={active}>
-              #{p.number} {p.title} · {p.branch} → main
+            <Text color={active ? "white" : undefined} backgroundColor={active ? SELECTED_BG : undefined}>
+              {truncateToWidth(`#${p.number} ${p.title} · ${p.branch} → main`, width)}
             </Text>
             <Text>
               {"  "}
               <Text color={status.color}>[{status.label}]</Text>
-              <Text color="gray"> · {p.author}</Text>
+              <Text color="gray"> · {truncateToWidth(p.author, Math.max(8, width - 24))}</Text>
             </Text>
           </Box>
         );
