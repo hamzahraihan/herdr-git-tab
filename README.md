@@ -94,7 +94,7 @@ PR list (pane 4):
 | Key | Action |
 | --- | --- |
 | `Enter` | Open detail reader (description + discussion; rail stays visible on wide terminals) |
-| `c` | `gh pr create` (interactive; list reloads on exit 0, error shows in footer) |
+| `c` | `gh pr create`: interactive on a terminal; in the Herdr pane (piped stdin) pushes the branch when it has no upstream and creates with `--fill`. Success shows the URL above the footer; failures show gh's message. The list reloads after. |
 
 PR detail (opened from pane 4):
 
@@ -145,7 +145,7 @@ Status (pane 6) + diff overlay:
   Detail keys: `c`/`Enter` checkout (`gh pr checkout`), `a` approve
   (`gh pr review --approve`), `o` open on GitHub, `r` refresh, `q`/`Esc` back.
   Detail never runs merge, ready, or terminal diff commands. List `c` starts
-  `gh pr create`.
+  `gh pr create` (interactive on a TTY; `--fill` with a push fallback when stdin is piped).
 - **Issues**: same reader shape for description + recent comments; rail shows
   state, labels, assignees, and comment count.
 
