@@ -2,7 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { Branch } from "../types.js";
 import { relativeTime } from "../time.js";
-import { cellWidth, terminalWidth, truncateToWidth } from "../width.js";
+import { cellWidth, contentHeight, terminalWidth, truncateToWidth } from "../width.js";
 import { SELECTED_BG } from "../theme.js";
 
 export function filterBranches(branches: Branch[], filter: string): Branch[] {
@@ -40,9 +40,10 @@ export default function BranchesPanel({
   // Content box already spends paddingX=1 on each side, so rows budget
   // `width - 2` cells to stay exactly one visual row (see width.ts).
   const inner = Math.max(20, terminalWidth() - 2);
+  const limit = contentHeight();
   return (
     <Box flexDirection="column">
-      {filtered.slice(0, 30).map((b, i) => (
+      {filtered.slice(0, limit).map((b, i) => (
         <BranchRow key={b.name} branch={b} active={i === safe} inner={inner} />
       ))}
     </Box>
