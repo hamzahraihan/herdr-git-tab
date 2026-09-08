@@ -18,14 +18,17 @@ export default function TabBar({ active }: { active: number }) {
       {TABS.map((t) => {
         const isActive = t.id === active;
         return (
-          <Box key={t.id} marginRight={1}>
-            <Text
-              color={isActive ? "white" : "gray"}
-              backgroundColor={isActive ? "gray" : undefined}
-              bold={isActive}
-              dimColor={!isActive}
-            >
-              {`  ${t.label}  `}
+          // Single border + paddingX=1 keeps each item exactly
+          // `label.length + 4` cells wide, matching tabRanges() in mouse.ts.
+          <Box
+            key={t.id}
+            marginRight={1}
+            borderStyle="single"
+            borderColor={isActive ? "yellow" : "gray"}
+            paddingX={1}
+          >
+            <Text color={isActive ? "yellow" : "gray"} bold={isActive} dimColor={!isActive}>
+              {t.label}
             </Text>
           </Box>
         );
