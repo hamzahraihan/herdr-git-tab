@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { Branch, Commit, RepoStatus } from "./types.js";
+import type { AuthorStat, Branch, Commit, RepoStats, RepoStatus } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 const TIMEOUT = 15000;
@@ -132,15 +132,14 @@ export async function getBranches(repo: string): Promise<Branch[]> {
   }
   if (headRef === "HEAD") {
     let lastCommit = "";
+    let lastCommitDate: string | undefined;
     try {
-      const r = await runGit(repo, ["log", "-1", "--format=%h%an%s", "HEAD"]);
-      const parts = r.stdout.trim().split("");
-      if (parts.length >= 3) lastCommit = `${parts[0]} ${parts[1]} ${parts[2]}`;
-      else lastCommit = r.stdout.trim();
+      const r = await runGit(repo, ["log", "-1", "--format=%h%x1f%an%x1f%cI%x1f%s", "HEAD"]);
+      ({ subject: lastCommit, date: lastCommitDate } = parseTipLine(r.stdout));
     } catch {
       lastCommit = "";
     }
-    return [{ name: "(detached)", current: true, ahead: 0, behind: 0, lastCommit }];
+    return [{ name: "(detached)", current: true, ahead: 0, behind: 0, lastCommit, lastCommitDate }];
   }
   let stdout = "";
   try {
@@ -152,22 +151,56 @@ export async function getBranches(repo: string): Promise<Branch[]> {
     throw new Error(text.trim().split("\n")[0] ?? "git branch failed");
   }
   const branches = parseBranchesOutput(stdout, headRef);
-  // Enrich lastCommit via `git log -1` per local branch; best-effort, keep -vv msg on failure.
+  // Enrich tip subject + date via `git log -1` per local branch; best-effort,
+  // keep the -vv message on failure. Unit separators keep author names with
+  // spaces intact.
   await Promise.all(
     branches
       .filter((b) => !b.name.startsWith("remotes/"))
       .map(async (b) => {
         try {
-          const r = await runGit(repo, ["log", "-1", "--format=%h%an%s", b.name, "--"]);
-          const parts = r.stdout.trim().split("");
-          if (parts.length >= 3) b.lastCommit = `${parts[0]} ${parts[1]} ${parts[2]}`;
-          else if (r.stdout.trim()) b.lastCommit = r.stdout.trim();
+          const r = await runGit(repo, ["log", "-1", "--format=%h%x1f%an%x1f%cI%x1f%s", b.name, "--"]);
+          const tip = parseTipLine(r.stdout);
+          if (tip.subject) b.lastCommit = tip.subject;
+          if (tip.date) b.lastCommitDate = tip.date;
         } catch {
           // keep -vv message
         }
       }),
   );
   return branches;
+}
+
+/** Split one `git log -1 --format=%h%x1f%an%x1f%cI%x1f%s` line into the tip
+ *  subject (shown in the branches view) and its ISO date (right-hand age).
+ *  Empty when git prints nothing (e.g. unborn branch). */
+export function parseTipLine(stdout: string): { subject: string; date?: string } {
+  const first = stdout.split("\n")[0] ?? "";
+  const parts = first.split(String.fromCharCode(31));
+  const date = (parts[2] ?? "").trim();
+  return { subject: (parts[3] ?? "").trim(), date: date ? date : undefined };
+}
+
+/** Parse `git branch --all --merged <trunk> --format=%(refname:short)` output
+ *  into branch names. Drops empties, symref arrows, and HEAD pointers. */
+export function parseMergedBranches(stdout: string): string[] {
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.includes(" -> ") && !line.endsWith("/HEAD"));
+}
+
+/** Names fully merged into `trunk` (local + remote). Best-effort: resolves
+ *  to [] when the trunk is unknown or git fails; callers degrade silently. */
+export async function getMergedBranches(repo: string, trunk: string): Promise<string[]> {
+  const { stdout } = await runGit(repo, [
+    "branch",
+    "--all",
+    "--merged",
+    trunk,
+    "--format=%(refname:short)",
+  ]);
+  return parseMergedBranches(stdout);
 }
 
 export function parseStatusOutput(stdout: string): RepoStatus {
@@ -227,4 +260,91 @@ export async function checkoutBranch(repo: string, name: string): Promise<void> 
   } catch (e) {
     throw new Error(errText(e).trim().split("\n")[0] ?? `git checkout ${name} failed`);
   }
+}
+
+/** Parse `git shortlog -s -n --all` output (`<count>\t<name>` per line). */
+export function parseShortlog(stdout: string): AuthorStat[] {
+  const authors: AuthorStat[] = [];
+  for (const raw of stdout.split("\n")) {
+    const m = /^\s*(\d+)\s+(.+?)\s*$/.exec(raw);
+    if (!m) continue;
+    authors.push({ name: (m[2] ?? "").trim(), count: Number(m[1]) });
+  }
+  return authors.filter((a) => a.name.length > 0 && Number.isFinite(a.count));
+}
+
+/** Display form of a remote URL: `github.com/user/repo`. Handles https/http
+ *  (with or without `.git`) and `user@host:path` ssh forms. Falls back to
+ *  the trimmed input when unrecognized. */
+export function normalizeRemoteUrl(raw: string): string {
+  const url = raw.trim().replace(/\.git$/, "");
+  const https = /^(?:https?:\/\/)?([^/]+)\/(.+)$/.exec(url);
+  if (https && !url.includes("@")) return `${https[1]}/${https[2]}`;
+  const ssh = /^(?:[^@]+@)?([^:]+):(.+)$/.exec(url);
+  if (ssh) return `${ssh[1]}/${ssh[2]}`;
+  return url;
+}
+
+const DAY_MS = 86_400_000;
+
+/** Human span between two ISO timestamps: `3 days`, `4 weeks`, `2 months`,
+ *  `1 year`. Null when either end is missing or unparsable. */
+export function humanizeSpan(oldest: string | null, newest: string | null): string | null {
+  if (!oldest || !newest) return null;
+  const from = Date.parse(oldest);
+  const to = Date.parse(newest);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return null;
+  const days = Math.floor((to - from) / DAY_MS);
+  if (days < 1) return "today";
+  if (days < 7) return `${days} day${days === 1 ? "" : "s"}`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks} week${weeks === 1 ? "" : "s"}`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} month${months === 1 ? "" : "s"}`;
+  const years = Math.floor(days / 365);
+  return `${years} year${years === 1 ? "" : "s"}`;
+}
+
+/** Repo-wide stats for the status panel: origin remote, total commits,
+ *  history span, and per-author counts. Best-effort — individual failures
+ *  degrade to null/empty rather than throwing. */
+export async function getRepoStats(repo: string): Promise<RepoStats> {
+  const stats: RepoStats = { remote: null, total: 0, oldest: null, newest: null, authors: [] };
+  try {
+    const [remote, total, newest, roots, shortlog] = await Promise.all([
+      runGit(repo, ["remote", "get-url", "origin"]).then(
+        (r) => r.stdout.trim(),
+        () => "",
+      ),
+      runGit(repo, ["rev-list", "--count", "--all"]).then(
+        (r) => Number(r.stdout.trim()),
+        () => NaN,
+      ),
+      runGit(repo, ["log", "-1", "--format=%cI", "--all"]).then(
+        (r) => r.stdout.trim(),
+        () => "",
+      ),
+      runGit(repo, ["rev-list", "--all", "--timestamp", "--max-parents=0"]).then(
+        (r) => r.stdout,
+        () => "",
+      ),
+      runGit(repo, ["shortlog", "-s", "-n", "--all"]).then(
+        (r) => r.stdout,
+        () => "",
+      ),
+    ]);
+    if (remote) stats.remote = normalizeRemoteUrl(remote);
+    if (Number.isFinite(total)) stats.total = total;
+    if (newest) stats.newest = newest;
+    let oldestEpoch = Infinity;
+    for (const line of roots.split("\n")) {
+      const epoch = Number((line.trim().split(/\s+/, 1)[0] ?? "").trim());
+      if (Number.isFinite(epoch) && epoch > 0 && epoch < oldestEpoch) oldestEpoch = epoch;
+    }
+    if (oldestEpoch !== Infinity) stats.oldest = new Date(oldestEpoch * 1000).toISOString();
+    stats.authors = parseShortlog(shortlog);
+  } catch {
+    // Fall through with whatever resolved; callers hide empty blocks.
+  }
+  return stats;
 }
