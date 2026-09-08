@@ -40,7 +40,8 @@ import {
 import { defaultShellCwdFile, findNearestGitRepo, readShellCwdFile } from "./repoResolver.js";
 import { getWorkspaceCwd } from "./herdrWorkspace.js";
 import { createPipeParser } from "./pipeInput.js";
-import { terminalWidth, truncateToWidth } from "./width.js";
+import { cellWidth, terminalWidth, truncateToWidth } from "./width.js";
+import { KEYBAR_BG } from "./theme.js";
 import {
   MOUSE_DISABLE,
   MOUSE_ENABLE,
@@ -49,7 +50,7 @@ import {
   tabRanges,
   type MouseEvent,
 } from "./mouse.js";
-import TabBar from "./views/TabBar.js";
+import HeaderBar from "./views/TabBar.js";
 import HistoryPanel, { historyVisibleRows } from "./views/HistoryPanel.js";
 import FlowPanel, { flowVisibleRows } from "./views/FlowPanel.js";
 import BranchesPanel, { filterBranches } from "./views/BranchesPanel.js";
@@ -97,6 +98,7 @@ export default function App({
   const [query, setQuery] = useState("");
   const [branchFilter, setBranchFilter] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [selH, setSelH] = useState(0);
   const [selB, setSelB] = useState(0);
   const [selPR, setSelPR] = useState(0);
@@ -224,6 +226,7 @@ export default function App({
     setSelStatus(0);
     setQuery("");
     setBranchFilter("");
+    setNotice("");
     setPrDetail(null);
     setPrDetailError("");
     setIssueDetail(null);
@@ -476,6 +479,7 @@ export default function App({
       return;
     }
     if (input === "r") {
+      setNotice("");
       void load();
       return;
     }
@@ -552,9 +556,16 @@ export default function App({
     }
     if (input === "c" && activePane === 4) {
       setError("");
+      setNotice("creating PR…");
       startPRCreate(repo)
-        .then(() => void load())
-        .catch((e: unknown) => setError(paneError(e)));
+        .then((url) => {
+          setNotice(url ? `created ${url}` : "created PR");
+          void load();
+        })
+        .catch((e: unknown) => {
+          setNotice("");
+          setError(paneError(e));
+        });
       return;
     }
     if (key.return) {
@@ -613,12 +624,12 @@ export default function App({
     };
   }, [isRawModeSupported, exit]);
 
-  // Mouse: left-click the tab strip or a row to select it, wheel to move the
-  // selection. Geometry mirrors the render tree: optional loading line, the
-  // bordered tab strip (3 rows: top border, labels, bottom border), one blank
-  // padding row, then content rows (each exactly one visual row for history —
-  // see width.ts), so terminal cells map deterministically.
-  const TAB_STRIP_HEIGHT = 3;
+  // Mouse: left-click the header strip or a row to select it, wheel to move
+  // the selection. Geometry mirrors the render tree: optional loading line,
+  // the header strip (2 rows: info + tabs, then the gray divider), one blank
+  // padding row, then content rows (each exactly one visual row — see
+  // width.ts), so terminal cells map deterministically.
+  const TAB_STRIP_HEIGHT = 2;
   const handleMouseInput = (m: MouseEvent) => {
     if (m.button === "wheel-up" || m.button === "wheel-down") {
       const d = m.button === "wheel-up" ? -1 : 1;
@@ -650,8 +661,8 @@ export default function App({
     if (m.button !== "left") return;
     const loadingLine = loading && commits.length === 0 && !status;
     const tabbarY = loadingLine ? 2 : 1;
-    if (m.y >= tabbarY && m.y < tabbarY + TAB_STRIP_HEIGHT) {
-      const hit = tabRanges().find((t) => m.x >= t.x0 && m.x <= t.x1);
+    if (m.y >= tabbarY && m.y < tabbarY + 1) {
+      const hit = tabRanges(terminalWidth()).find((t) => m.x >= t.x0 && m.x <= t.x1);
       if (hit) setActivePane(hit.id);
       return;
     }
@@ -670,7 +681,7 @@ export default function App({
       const { view, start } = flowVisibleRows(commits, branches, prs, query, mergedNames, selH);
       const k = rowIndexAt(
         dy,
-        view.map((r) => (r.isMain ? 1 : 2)),
+        view.map(() => 1),
       );
       if (k !== null) setSelH(start + k);
     } else if (activePane === 3) {
@@ -757,8 +768,9 @@ export default function App({
   let footerHint = `1-6 focus · / filter · m scope:${scopeLabel} · r refresh · q quit · ${repo}${fixedRepo ? "" : " (auto)"}`;
   if (diff) footerHint = `j/k scroll · q/Esc back · ${repo}`;
   else if (showingPRDetail)
-    footerHint = `c/Enter checkout · a approve · o open · r refresh · q/Esc back · ${repo}`;
-  else if (showingIssueDetail) footerHint = `o open · r refresh · q/Esc back · ${repo}`;
+    footerHint = `j/k scroll · c/Enter checkout · a approve · o open · r refresh · q/Esc back · ${repo}`;
+  else if (showingIssueDetail)
+    footerHint = `j/k scroll · o open · r refresh · q/Esc back · ${repo}`;
   else if (activePane === 3)
     footerHint = `Enter checkout · d diff · / filter · m scope:${scopeLabel} · r refresh · q quit · ${repo}${fixedRepo ? "" : " (auto)"}`;
   else if (activePane === 4)
@@ -777,7 +789,13 @@ export default function App({
         </Box>
       ) : null}
       <Box paddingX={1}>
-        <TabBar active={activePane} />
+        <HeaderBar
+          active={activePane}
+          repo={repoName(repo)}
+          current={branches.find((b) => b.current)?.name ?? null}
+          upstream={branches.find((b) => b.current)?.upstream}
+          changes={status ? statusPaths(status).length : 0}
+        />
       </Box>
       <Box flexDirection="column" flexGrow={1} paddingX={1} paddingY={1}>
         {diff ? (
@@ -875,6 +893,11 @@ export default function App({
           <Text> {truncateToWidth(`Checking out ${checkingOut}…`, width)}</Text>
         </Box>
       ) : null}
+      {notice ? (
+        <Box paddingX={1}>
+          <Text color="green">{truncateToWidth(notice, width)}</Text>
+        </Box>
+      ) : null}
       {error ? (
         <Box paddingX={1}>
           <Text color="red">{truncateToWidth(error, width)}</Text>
@@ -887,11 +910,27 @@ export default function App({
           </Text>
         </Box>
       ) : null}
-      <Box paddingX={1}>
-        <Text color="gray">{truncateToWidth(footerHint, width)}</Text>
+      <Box>
+        <KeyBar text={footerHint} width={width} />
       </Box>
     </Box>
   );
+}
+function KeyBar({ text, width }: { text: string; width: number }) {
+  const label = truncateToWidth(text, Math.max(8, width - 2));
+  const fill = " ".repeat(Math.max(0, width - cellWidth(label) - 2));
+  return (
+    <Text backgroundColor={KEYBAR_BG} color="white">
+      {` ${label} `}
+      {fill}
+    </Text>
+  );
+}
+
+function repoName(path: string): string {
+  const clean = path.replace(/[/\\]+$/, "");
+  const parts = clean.split(/[/\\]/);
+  return parts[parts.length - 1] || path;
 }
 
 function paneError(e: unknown): string {
