@@ -2,16 +2,28 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { Branch, Commit, PR } from "../types.js";
 import { filterCommits } from "./HistoryPanel.js";
-import { cellWidth, terminalWidth, truncateToWidth } from "../width.js";
+import { cellWidth, contentHeight, terminalWidth, truncateToWidth } from "../width.js";
 import { SELECTED_BG } from "../theme.js";
-import {
-  buildBranchHierarchy,
-  renderBranchLine,
-  type BranchRow,
-} from "../branchHierarchy.js";
+import { buildBranchHierarchy, type BranchRow } from "../branchHierarchy.js";
 
-/** Cap rows so connector lines + rows always fit the viewport. */
-const MAX_ROWS = 20;
+/** Cap rows so the flow always fits the viewport. */
+
+/**
+ * Distinct per-branch lane colors, cycling in display order so adjacent
+ * rows never share a color. Matches the reference: teal → orange →
+ * pink → green → sky, repeating.
+ */
+export const FLOW_COLORS = ["#2dd4bf", "#fb923c", "#f472b6", "#a3e635", "#7dd3fc"];
+
+/** Trunk (main/master) lane color — the lavender `merge` line. */
+export const FLOW_TRUNK_COLOR = "#c4b5fd";
+
+/** Branch glyph shown before each name (reference uses a small branch icon). */
+export const BRANCH_GLYPH = "⑂";
+
+export function flowBranchColor(index: number): string {
+  return FLOW_COLORS[index % FLOW_COLORS.length]!;
+}
 
 export function flowVisibleRows(
   commits: Commit[],
@@ -20,6 +32,7 @@ export function flowVisibleRows(
   query: string,
   mergedNames: Set<string>,
   selected: number,
+  limit: number = contentHeight(),
 ): { view: BranchRow[]; start: number; safe: number } {
   const filtered = filterCommits(commits, query);
   const currentBranch = branches.find((b) => b.current)?.name ?? null;
@@ -32,8 +45,8 @@ export function flowVisibleRows(
       : row,
   );
   const safe = Math.min(selected, view.length - 1);
-  const start = Math.max(0, Math.min(safe - 8, view.length - MAX_ROWS));
-  return { view: view.slice(start, start + MAX_ROWS), start, safe };
+  const start = Math.max(0, Math.min(safe - 8, view.length - limit));
+  return { view: view.slice(start, start + limit), start, safe };
 }
 export default function FlowPanel({
   commits,
@@ -74,15 +87,24 @@ export default function FlowPanel({
     );
   }
   const width = terminalWidth();
+  // Color index counts non-trunk rows in display order so the cycle is
+  // stable per render and adjacent rows always differ.
+  let colorCursor = 0;
+  const colors = new Map<string, string>();
+  for (const row of view) {
+    if (row.isMain) continue;
+    if (!colors.has(row.name)) colors.set(row.name, flowBranchColor(colorCursor++));
+  }
   return (
     <Box flexDirection="column">
       {view.map((row, i) => (
-        <React.Fragment key={row.name}>
-          {row.isMain ? null : (
-            <Text color="gray">{"    \\"}</Text>
-          )}
-          <BranchRowView row={row} active={start + i === safe} width={width} />
-        </React.Fragment>
+        <BranchRowView
+          key={row.name}
+          row={row}
+          active={start + i === safe}
+          width={width}
+          color={row.isMain ? FLOW_TRUNK_COLOR : (colors.get(row.name) ?? FLOW_COLORS[0]!)}
+        />
       ))}
     </Box>
   );
@@ -92,106 +114,92 @@ function BranchRowView({
   row,
   active,
   width,
+  color,
 }: {
   row: BranchRow;
   active: boolean;
   width: number;
+  color: string;
 }) {
-  // Badges after the lane, ` · `-separated like `↑2 · PR #14`.
   const bg = active ? SELECTED_BG : undefined;
-  const sep = (
-    <Text color="gray" backgroundColor={bg}>
-      {" · "}
-    </Text>
-  );
-  const badgeNodes: React.ReactNode[] = [];
-  const badgeTexts: string[] = [];
-  const sync =
-    (row.ahead > 0 ? `↑${row.ahead}` : "") + (row.behind > 0 ? `↓${row.behind}` : "");
-  if (sync) {
-    badgeNodes.push(
-      <Text key="sync" color="gray" backgroundColor={bg}>
-        {" "}
-        {sync}
-      </Text>,
-    );
-    badgeTexts.push(sync);
-  }
-  if (row.prNumber !== null) {
-    badgeNodes.push(
-      badgeNodes.length > 0 ? (
-        <React.Fragment key="s1">{sep}</React.Fragment>
-      ) : (
-        <Text key="s1" backgroundColor={bg}>
-          {" "}
+  const node = row.merges.length > 0 ? "◆" : "●";
+  // Sync counters always render (zeros included) so columns align like the
+  // reference: `↑0 ↓0`.
+  const sync = `↑${row.ahead} ↓${row.behind}`;
+  const prTag = row.prNumber !== null ? ` · PR #${row.prNumber}` : "";
+  const mergedTag = row.merged && row.mergedInto ? `merged → ${row.mergedInto}` : "";
+
+  if (row.isMain) {
+    // Trunk: `⑂main  ●────────────→ merge`. The lane stretches to a fixed
+    // visual length so it reads as the long lavender line in the reference.
+    const name = truncateToWidth(`${BRANCH_GLYPH}${row.name}`, 20);
+    const keep = cellWidth(name) + cellWidth(sync) + (prTag ? cellWidth(prTag) : 0) + 8;
+    const laneLen = Math.max(8, Math.min(28, width - keep));
+    return (
+      <Box flexDirection="row">
+        <Text bold color="white" backgroundColor={bg}>
+          {name}{" "}
         </Text>
-      ),
-    );
-    badgeNodes.push(
-      <Text key="pr" bold color="yellow" backgroundColor={bg}>
-        PR #{row.prNumber}
-      </Text>,
-    );
-    badgeTexts.push(`PR #${row.prNumber}`);
-  }
-  if (row.merged && row.mergedInto) {
-    const tag = `merged → ${row.mergedInto}`;
-    badgeNodes.push(
-      badgeNodes.length > 0 ? (
-        <React.Fragment key="s2">{sep}</React.Fragment>
-      ) : (
-        <Text key="s2" backgroundColor={bg}>
-          {" "}
+        <Text bold color={color} backgroundColor={bg}>
+          {node}
+          {"─".repeat(laneLen)}→
         </Text>
-      ),
+        <Text color="gray" backgroundColor={bg}>
+          {"  "}
+          {mergedTag || "merge"}
+          {prTag ? (
+            <Text>
+              {"  "}
+              <Text bold color="yellow" backgroundColor={bg}>
+                PR #{row.prNumber}
+              </Text>
+            </Text>
+          ) : null}
+        </Text>
+      </Box>
     );
-    badgeNodes.push(
-      <Text key="merged" color="gray" backgroundColor={bg}>
-        {tag}
-      </Text>,
-    );
-    badgeTexts.push(tag);
   }
-  const tailWidth = badgeTexts.length > 0 ? cellWidth(` ${badgeTexts.join(" · ")}`) : 0;
-  // The graph lane is ~2 cells per commit and easily exceeds the terminal,
-  // which desyncs Ink's frame erase. Budget it against the other segments so
-  // the whole row is exactly one visual row; a merged lane rejoins the trunk
-  // with ──╯ instead of running on with ──>.
-  const name = truncateToWidth(row.name, 48);
-  const suffix = row.merged ? "──╯" : row.isMain ? "──>" : "";
-  const lineBudget = Math.max(8, width - cellWidth(name) - tailWidth - 3);
-  const body = truncateToWidth(
-    renderBranchLine(row.commits, false, new Set(row.merges)),
-    Math.max(8, lineBudget - suffix.length),
-  );
-  const lane = row.commits.length === 0 && row.merged ? "──╯" : `${body}${suffix}`;
-  const nameColor = row.isMain ? "green" : active ? "white" : row.merged ? "gray" : "cyan";
+
+  // Child: `└─⑂name  ●───  ↑0 ↓0`. Single node per branch (not per commit)
+  // like the reference; the dot + short lane carry the branch color.
+  const name = truncateToWidth(`${BRANCH_GLYPH}${row.name}`, 16);
+  const lane = row.merged ? "──╯" : "───";
   return (
     <Box flexDirection="row">
-      <Text bold={row.isMain || active} color={nameColor} backgroundColor={bg}>
+      <Text color="gray" backgroundColor={bg}>
+        {"└─"}
+      </Text>
+      <Text bold={active} color={color} backgroundColor={bg}>
         {name}{" "}
       </Text>
-      <LaneGlyphs lane={lane} backgroundColor={bg} />
-      {badgeNodes}
-    </Box>
-  );
-}
-
-/** Lane connectors gray, commit nodes white so merges (◆) stand out. */
-function LaneGlyphs({ lane, backgroundColor }: { lane: string; backgroundColor?: string }) {
-  const parts = lane.split(/([●◆…])/g);
-  return (
-    <Text color="gray" backgroundColor={backgroundColor}>
-
-      {parts.map((part, i) =>
-        part === "●" || part === "◆" ? (
-          <Text key={i} color="white">
-            {part}
+      <Text bold color={color} backgroundColor={bg}>
+        {node}
+      </Text>
+      <Text color={color} backgroundColor={bg}>
+        {lane}
+        {"  "}
+      </Text>
+      <Text color="gray" backgroundColor={bg}>
+        {sync}
+      </Text>
+      {prTag ? (
+        <Text backgroundColor={bg}>
+          <Text color="gray" backgroundColor={bg}>
+            {" · "}
           </Text>
-        ) : (
-          <Text key={i}>{part}</Text>
-        ),
-      )}
-    </Text>
+          <Text bold color="yellow" backgroundColor={bg}>
+            PR #{row.prNumber}
+          </Text>
+        </Text>
+      ) : null}
+      {mergedTag ? (
+        <Text backgroundColor={bg}>
+          <Text color="gray" backgroundColor={bg}>
+            {"  "}
+            {mergedTag}
+          </Text>
+        </Text>
+      ) : null}
+    </Box>
   );
 }
