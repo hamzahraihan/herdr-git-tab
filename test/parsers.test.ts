@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  humanizeSpan,
+  normalizeRemoteUrl,
   parseBranchesOutput,
   parseHistoryOutput,
+  parseMergedBranches,
+  parseShortlog,
   parseStatusOutput,
 } from "../src/git.js";
 
@@ -98,5 +102,62 @@ describe("parseBranchesOutput", () => {
     expect(parseBranchesOutput("* (HEAD detached) abc1234 msg", "HEAD")).toEqual([
       { name: "(detached)", current: true, ahead: 0, behind: 0, lastCommit: "" },
     ]);
+  });
+});
+
+describe("parseMergedBranches", () => {
+  it("returns trimmed names, dropping empties, arrows, and HEAD pointers", () => {
+    const stdout = ["  main", "  feature/x", "", "origin/HEAD", "  origin/feature/y  "].join("\n");
+    expect(parseMergedBranches(stdout)).toEqual(["main", "feature/x", "origin/feature/y"]);
+  });
+
+  it("drops symref arrows", () => {
+    expect(parseMergedBranches("foo -> bar\nmain\n")).toEqual(["main"]);
+  });
+});
+
+describe("parseShortlog", () => {
+  it("parses count-name rows in order", () => {
+    expect(parseShortlog("    46\tRizRiyz\n     1\tbot\n")).toEqual([
+      { name: "RizRiyz", count: 46 },
+      { name: "bot", count: 1 },
+    ]);
+  });
+
+  it("skips blank and malformed lines", () => {
+    expect(parseShortlog("\nno-count-here\n  3\t  spaced out  \n")).toEqual([
+      { name: "spaced out", count: 3 },
+    ]);
+  });
+});
+
+describe("normalizeRemoteUrl", () => {
+  it("strips protocol and .git from https remotes", () => {
+    expect(normalizeRemoteUrl("https://github.com/RizRiyz/luvus.git")).toBe(
+      "github.com/RizRiyz/luvus",
+    );
+  });
+
+  it("converts ssh remotes to host/path form", () => {
+    expect(normalizeRemoteUrl("git@github.com:RizRiyz/luvus.git")).toBe("github.com/RizRiyz/luvus");
+  });
+
+  it("passes plain host/path through", () => {
+    expect(normalizeRemoteUrl("github.com/RizRiyz/luvus")).toBe("github.com/RizRiyz/luvus");
+  });
+});
+
+describe("humanizeSpan", () => {
+  it("humanizes day, week, month, and year spans", () => {
+    expect(humanizeSpan("2026-08-01T00:00:00Z", "2026-08-01T12:00:00Z")).toBe("today");
+    expect(humanizeSpan("2026-08-01T00:00:00Z", "2026-08-04T00:00:00Z")).toBe("3 days");
+    expect(humanizeSpan("2026-07-04T00:00:00Z", "2026-08-01T00:00:00Z")).toBe("4 weeks");
+    expect(humanizeSpan("2026-01-01T00:00:00Z", "2026-08-01T00:00:00Z")).toBe("7 months");
+    expect(humanizeSpan("2024-08-01T00:00:00Z", "2026-08-01T00:00:00Z")).toBe("2 years");
+  });
+
+  it("returns null for missing or invalid ends", () => {
+    expect(humanizeSpan(null, "2026-08-01T00:00:00Z")).toBeNull();
+    expect(humanizeSpan("nope", "2026-08-01T00:00:00Z")).toBeNull();
   });
 });
