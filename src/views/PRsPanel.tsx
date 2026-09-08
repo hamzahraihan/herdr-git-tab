@@ -1,7 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { PR } from "../types.js";
-import { terminalWidth, truncateToWidth } from "../width.js";
+import { contentHeight, terminalWidth, truncateToWidth } from "../width.js";
 import { SELECTED_BG } from "../theme.js";
 
 export function filterPRs(prs: PR[], query: string): PR[] {
@@ -62,9 +62,10 @@ export default function PRsPanel({
   }
   const safe = Math.min(selected, filtered.length - 1);
   const width = terminalWidth();
+  const limit = Math.max(5, Math.floor(contentHeight() / 2));
   return (
     <Box flexDirection="column">
-      {filtered.slice(0, 30).map((p, i) => {
+      {filtered.slice(0, limit).map((p, i) => {
         const active = i === safe;
         const status = statusTag(p.checks);
         return (
