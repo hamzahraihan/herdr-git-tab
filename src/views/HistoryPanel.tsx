@@ -3,7 +3,7 @@ import { Box, Text } from "ink";
 import type { Commit } from "../types.js";
 import { relativeTime } from "../time.js";
 import { SELECTED_BG } from "../theme.js";
-import { cellWidth, terminalWidth, truncateToWidth } from "../width.js";
+import { cellWidth, contentHeight, terminalWidth, truncateToWidth } from "../width.js";
 
 export function filterCommits(commits: Commit[], query: string): Commit[] {
   const q = query.trim().toLowerCase();
@@ -20,11 +20,12 @@ export function historyVisibleRows(
   commits: Commit[],
   query: string,
   selected: number,
+  limit: number = contentHeight(),
 ): { rows: Commit[]; start: number; safe: number } {
   const filtered = filterCommits(commits, query);
   const safe = Math.min(selected, filtered.length - 1);
-  const start = Math.max(0, Math.min(safe - 8, filtered.length - 30));
-  return { rows: filtered.slice(start, start + 30), start, safe };
+  const start = Math.max(0, Math.min(safe - 8, filtered.length - limit));
+  return { rows: filtered.slice(start, start + limit), start, safe };
 }
 
 export default function HistoryPanel({
