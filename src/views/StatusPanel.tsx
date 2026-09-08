@@ -1,18 +1,20 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { RepoStats, RepoStatus } from "../types.js";
-import { humanizeSpan } from "../git.js";
+import { humanizeSpan, statusPaths } from "../git.js";
+import { SELECTED_BG } from "../theme.js";
 import { cellWidth, scaleBars, terminalWidth, truncateToWidth } from "../width.js";
 const MAX_AUTHORS = 5;
-
 export default function StatusPanel({
   status,
   error,
   stats,
+  selected = 0,
 }: {
   status: RepoStatus | null;
   error?: string;
   stats?: RepoStats | null;
+  selected?: number;
 }) {
   if (error) {
     return (
@@ -33,6 +35,9 @@ export default function StatusPanel({
   const ahead = status.ahead > 0 ? ` ↑${status.ahead}` : "";
   const behind = status.behind > 0 ? ` ↓${status.behind}` : "";
   const width = terminalWidth();
+  const paths = statusPaths(status);
+  const activePath = paths[Math.min(selected, Math.max(0, paths.length - 1))]?.path;
+  const isSelected = (p: string): boolean => p === activePath && paths.length > 0;
   return (
     <Box flexDirection="column">
       <Contributors stats={stats} width={width} />
@@ -59,7 +64,11 @@ export default function StatusPanel({
           {status.staged.length === 0 ? <Text color="gray"> (empty)</Text> : null}
         </Text>
         {status.staged.slice(0, 10).map((f) => (
-          <Text key={`s-${f.path}`} color="green">
+          <Text
+            key={`s-${f.path}`}
+            color="green"
+            backgroundColor={isSelected(f.path) ? SELECTED_BG : undefined}
+          >
             {truncateToWidth(`  ${f.path}`, width)}
           </Text>
         ))}
@@ -70,7 +79,11 @@ export default function StatusPanel({
           {status.unstaged.length === 0 ? <Text color="gray"> (empty)</Text> : null}
         </Text>
         {status.unstaged.slice(0, 10).map((f) => (
-          <Text key={`u-${f.path}`} color="yellow">
+          <Text
+            key={`u-${f.path}`}
+            color="yellow"
+            backgroundColor={isSelected(f.path) ? SELECTED_BG : undefined}
+          >
             {truncateToWidth(`  ${f.path}`, width)}
           </Text>
         ))}
@@ -81,7 +94,11 @@ export default function StatusPanel({
           {status.untracked.length === 0 ? <Text color="gray"> (empty)</Text> : null}
         </Text>
         {status.untracked.slice(0, 10).map((p) => (
-          <Text key={`x-${p}`} color="red">
+          <Text
+            key={`x-${p}`}
+            color="red"
+            backgroundColor={isSelected(p) ? SELECTED_BG : undefined}
+          >
             {truncateToWidth(`  ${p}`, width)}
           </Text>
         ))}

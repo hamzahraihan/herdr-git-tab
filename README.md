@@ -7,13 +7,17 @@ Herdr tab plugin: keyboard-driven git + GitHub TUI showing six panes in one view
 Requires Herdr ≥ 0.8, Node ≥ 20, and `pnpm`.
 
 ```sh
-# From a checkout (local development):
+herdr plugin install hamzahraihan/herdr-git-tab
+```
+
+Herdr clones the repo and runs the build for you.
+
+For local development instead:
+
+```sh
 herdr plugin link /path/to/herdr-git-tab
 pnpm install
 pnpm build
-
-# Or from GitHub (Herdr runs the build for you):
-herdr plugin install <owner>/herdr-git-tab
 ```
 
 Then register the keybinding (one time). Herdr gives plugins no key API, so
@@ -27,6 +31,21 @@ node dist/bin/setup-keys.js [--key prefix+.] [--no-reload]
 ```
 
 Press `prefix` then `.` to open the Git tab in the active workspace.
+
+## Uninstall
+
+```sh
+herdr plugin uninstall herdr-git-tab
+```
+
+Linked checkout instead:
+
+```sh
+herdr plugin unlink herdr-git-tab
+```
+
+Then remove the `herdr-git-tab` `[[keys.command]]` block from your user
+`config.toml` to unbind `prefix` + `.`.
 
 ## Run
 
@@ -46,27 +65,89 @@ When stdout is not a TTY (Herdr non-interactive capture), the CLI prints
 
 ## TUI
 
+Six panes in one view: 1 history, 2 graph, 3 branches, 4 PRs, 5 issues,
+6 status. See [Keymap](#keymap) for every binding.
+
+## Keymap
+
+Global (list focused, no overlay open):
+
 | Key | Action |
 | --- | --- |
-| 1–6 | Focus pane (1 history, 2 graph, 3 branches, 4 PRs, 5 issues, 6 status) |
-| Click | Tab strip or row to select it; wheel scrolls the selection (needs `ui.mouse_capture = false` — Herdr captures mouse input by default) |
-| `/` | Filter commits/PRs/issues by substring |
-| `r` | Manual refresh |
-| `j` / `k` / arrows | Move selection (history, branches, PRs, issues) |
-| `Enter` | Branches → `git checkout`; PRs/Issues → `gh ... view --web` |
-| `q` | Quit |
+| `1`–`6` | Focus pane (1 history, 2 graph, 3 branches, 4 PRs, 5 issues, 6 status) |
+| `j` / `k` / `↑` / `↓` | Move selection (history, branches, PRs, issues, status files) |
+| Click | Select tab-strip item or row; wheel scrolls selection (needs `ui.mouse_capture = false` — Herdr captures mouse input by default) |
+| `/` | Filter commits / PRs / issues by substring (`Esc`/`Enter` done; `Backspace` deletes) |
+| `m` | Toggle scope: this repo ↔ my work (`--search "involves:@me"`) |
+| `r` | Refresh all panes |
+| `q` | Quit (`Esc` does nothing in the list) |
+
+Branches (pane 3):
+
+| Key | Action |
+| --- | --- |
+| `Enter` | `git checkout <branch>` (local branches only; `remotes/` and `(detached)` ignored) |
+| `d` | Diff overlay: `git log --oneline -20 <branch>` + `git diff --stat` (`j`/`k` scroll, `q`/`Esc` back) |
+
+PR list (pane 4):
+
+| Key | Action |
+| --- | --- |
+| `Enter` | Open detail reader (description + discussion; rail stays visible on wide terminals) |
+| `c` | `gh pr create` (interactive; list reloads on exit 0, error shows in footer) |
+
+PR detail (opened from pane 4):
+
+| Key | Action |
+| --- | --- |
+| `c` or `Enter` | `gh pr checkout <number>`, then reload branches/status |
+| `a` | `gh pr review <number> --approve`, then refresh the panel |
+| `o` | Open on GitHub (`gh pr view --web <number>`, fire-and-forget) |
+| `r` | Refresh the panel (`gh pr view --json …`) |
+| `j` / `k` / `↑` / `↓` / wheel | Scroll discussion (rail stays pinned on wide `≥100`-col terminals) |
+| `q` / `Esc` | Back to the PR list (never quits the tab) |
+| `d` | Nothing — detail never runs merge, ready, or terminal diff commands |
+
+Issues (pane 5, same reader shape):
+
+| Key | Action |
+| --- | --- |
+| `Enter` | Open reader: description + recent comments (last 10 shown; rail: state, labels, assignees, comment count) |
+| `o` (in detail) | Open on GitHub (`gh issue view --web <number>`) |
+| `r` (in detail) | Refresh the panel |
+| `j` / `k` / wheel (in detail) | Scroll discussion |
+| `q` / `Esc` (in detail) | Back to the issue list |
+
+Status (pane 6) + diff overlay:
+
+| Key | Action |
+| --- | --- |
+| `j` / `k` / click / wheel | Select a changed file (staged → unstaged → untracked order) |
+| `d` | Diff overlay: `git diff HEAD -- <file>` (`(untracked <path>: no diff)` for new files; `j`/`k` scroll, `q`/`Esc` back) |
 
 ## Pane behavior
 
 - **History / Graph**: `git log --graph --pretty=format:... --all -n 100`. Empty repo
   shows "No commits yet".
-- **Branches**: `git branch -vv --all`. `*` marks current, `[gone]` on missing upstream,
+- **Branches**: `git branch -vv --all`. `*` marks current, `[gone]` on missing upstream.
+  `Enter` checks out; `d` shows the log + diff stat overlay.
 - **Status**: `git status --porcelain=v1 -b`. Sections for branch, staged, unstaged,
-  untracked; "working tree: clean" when empty. Heads up with an origin summary
-  (`remote · N commits · span`) and per-author commit bars.
-- **PRs / Issues**: `gh pr list` / `gh issue list` JSON. `gh` missing or unauthenticated
-  → yellow `gh unavailable` banner, other panes still render. No GitHub remote →
-  `(no GitHub remote)` subtitle.
+  untracked; "working tree: clean" when empty. `j`/`k` selects a changed file,
+  `d` shows its `git diff HEAD` overlay (`(untracked …: no diff)` for new files).
+  Heads up with an origin summary (`remote · N commits · span`) and per-author
+  commit bars.
+- **PRs**: `gh pr list` / `gh issue list` JSON (`--search "involves:@me"` when scope
+  is `mine`). `gh` missing or unauthenticated → yellow `gh unavailable` banner,
+  other panes still render. No GitHub remote → `(no GitHub remote)` subtitle.
+  `Enter` opens the detail reader (description + discussion); wide terminals
+  (`≥100` cols) show discussion left (2/3) + info rail right (branches, checks,
+  reviews, labels, mergeability, stats), narrow terminals stack the same content.
+  Detail keys: `c`/`Enter` checkout (`gh pr checkout`), `a` approve
+  (`gh pr review --approve`), `o` open on GitHub, `r` refresh, `q`/`Esc` back.
+  Detail never runs merge, ready, or terminal diff commands. List `c` starts
+  `gh pr create`.
+- **Issues**: same reader shape for description + recent comments; rail shows
+  state, labels, assignees, and comment count.
 
 ## Error handling
 
