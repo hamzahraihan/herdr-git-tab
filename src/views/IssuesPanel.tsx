@@ -1,6 +1,8 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { Issue } from "../types.js";
+import { terminalWidth, truncateToWidth } from "../width.js";
+import { SELECTED_BG } from "../theme.js";
 
 export function filterIssues(issues: Issue[], query: string): Issue[] {
   const q = query.trim().toLowerCase();
@@ -58,6 +60,7 @@ export default function IssuesPanel({
     );
   }
   const safe = Math.min(selected, filtered.length - 1);
+  const width = terminalWidth();
   return (
     <Box flexDirection="column">
       {filtered.slice(0, 20).map((iss, idx) => {
@@ -67,13 +70,15 @@ export default function IssuesPanel({
         return (
           <Box key={iss.number} flexDirection="column" marginBottom={1}>
             <Box>
-              <Text color={active ? "white" : undefined} inverse={active}>
-                #{iss.number} {iss.title}
+              <Text color={active ? "white" : undefined} backgroundColor={active ? SELECTED_BG : undefined}>
+                {truncateToWidth(`#${iss.number} ${iss.title}`, width)}
               </Text>
             </Box>
             <Box>
               <Text color={status.color}>[{status.label}]</Text>
-              {labels ? <Text color="gray"> {labels}</Text> : null}
+              {labels ? (
+                <Text color="gray"> {truncateToWidth(labels, Math.max(8, width - 24))}</Text>
+              ) : null}
               <Text color="gray"> · {iss.author}</Text>
             </Box>
           </Box>
