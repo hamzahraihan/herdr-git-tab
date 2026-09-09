@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { KeyEvent } from "@opentui/core";
 import { scrollDelta } from "./doubleClick.js";
+import { busyLabel } from "./busyStatus.js";
 import type {
   Branch,
   Commit,
@@ -113,6 +114,7 @@ export default function App({
   // `load()` only shows its own spinner on first paint, so without this the
   // tab gives no feedback while a checkout is in flight.
   const [checkingOut, setCheckingOut] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   // Current repo. Follows the workspace's live shell cwd (via the Herdr
   // socket CLI) so `cd` in a sibling pane repoints the TUI automatically —
   // no manual path entry. `--repo <path>` pins a fixed repo instead.
@@ -141,7 +143,7 @@ export default function App({
     [fixedRepo],
   );
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { manual?: boolean }) => {
     // Re-resolve first so the closure sees the freshest cwd before any work.
     const target = await resolveLiveRepo(repo);
     if (target !== repo) {
@@ -150,6 +152,7 @@ export default function App({
       // path. Bail to avoid racing two loads against the same state batch.
       return;
     }
+    if (opts?.manual) setBusy(busyLabel({ kind: "refresh" }));
     setLoading(true);
     const [h, b, s, p, i, r, st] = await Promise.allSettled([
       getHistory(target, 100),
@@ -166,6 +169,7 @@ export default function App({
         `Not a git repository: ${target}\ncd into a git checkout and the tab follows automatically, or pass --repo <path>, then press q to exit.`,
       );
       setLoading(false);
+      if (opts?.manual) setBusy(null);
       return;
     }
     setFatal(null);
@@ -205,6 +209,7 @@ export default function App({
       }
     }
     setLoading(false);
+    if (opts?.manual) setBusy(null);
   }, [repo, resolveLiveRepo, scope]);
 
   // Reset per-pane selection + filters when the repo or scope flips. Without
@@ -226,6 +231,7 @@ export default function App({
     setDiff(null);
     setDiffScroll(0);
     setCheckingOut(null);
+    setBusy(null);
   }, [repo, scope]);
 
   useEffect(() => {
@@ -398,6 +404,7 @@ export default function App({
       }
       if (input === "m") {
         setScope((s) => (s === "repo" ? "mine" : "repo"));
+        void load({ manual: true });
         closePRDetail();
         return;
       }
@@ -457,6 +464,7 @@ export default function App({
       }
       if (input === "m") {
         setScope((s) => (s === "repo" ? "mine" : "repo"));
+        void load({ manual: true });
         closeIssueDetail();
         return;
       }
@@ -485,7 +493,7 @@ export default function App({
     }
     if (input === "r") {
       setNotice("");
-      void load();
+      void load({ manual: true });
       return;
     }
     if (input === "/") {
@@ -494,6 +502,7 @@ export default function App({
     }
     if (input === "m") {
       setScope((s) => (s === "repo" ? "mine" : "repo"));
+      void load({ manual: true });
       return;
     }
     if (input === "j" || key.name === "down") {
@@ -813,10 +822,10 @@ export default function App({
           <text fg="gray"> (esc/ent done)</text>
         </box>
       ) : null}
-      {checkingOut ? (
+      {busy ? (
         <box paddingX={1}>
           <text fg="cyan">● </text>
-          <text> {truncateToWidth(`Checking out ${checkingOut}…`, width)}</text>
+          <text>{truncateToWidth(busy, width)}</text>
         </box>
       ) : null}
       {notice ? (
