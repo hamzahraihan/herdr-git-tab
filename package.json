@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "tsx src/cli.tsx",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node dist/bin/setup-keys.js --auto",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
