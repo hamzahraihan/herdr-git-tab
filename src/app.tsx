@@ -110,9 +110,8 @@ export default function App({
   const [detailScroll, setDetailScroll] = useState(0);
   const [diff, setDiff] = useState<{ title: string; body: string } | null>(null);
   const [diffScroll, setDiffScroll] = useState(0);
-  // Spinner label while a checkout runs (`git checkout` / `gh pr checkout`).
-  // `load()` only shows its own spinner on first paint, so without this the
-  // tab gives no feedback while a checkout is in flight.
+  // In-flight guard preventing double-checkout (`git checkout` / `gh pr checkout`).
+  // `busy` drives the footer line; `checkingOut` only gates re-entry while one runs.
   const [checkingOut, setCheckingOut] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   // Current repo. Follows the workspace's live shell cwd (via the Herdr
