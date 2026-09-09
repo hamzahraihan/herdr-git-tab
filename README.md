@@ -21,17 +21,18 @@ pnpm install
 pnpm build
 ```
 
-Then register the keybinding (one time). Herdr gives plugins no key API, so
-this explicit command appends one `[[keys.command]]` block to your user
-config (`%APPDATA%\herdr\config.toml` on Windows,
-`~/.config/herdr/config.toml` on macOS/Linux, or `HERDR_CONFIG_PATH`) and
-reloads the server. It is idempotent — re-running changes nothing:
-
-```sh
-node dist/bin/setup-keys.js [--key prefix+.] [--no-reload]
-```
+The keybinding (`prefix` + `.`) is registered automatically in your Herdr
+`config.toml` (`%APPDATA%\herdr\config.toml` on Windows,
+`~/.config/herdr/config.toml` on macOS/Linux, or `HERDR_CONFIG_PATH`) during
+plugin install, build, and server startup.
 
 Press `prefix` then `.` to open the Git tab in the active workspace.
+
+To customize the keybinding to a different key instead:
+
+```sh
+node dist/bin/setup-keys.js --key <binding>
+```
 
 ## Uninstall
 
@@ -158,10 +159,9 @@ Status (pane 6) + diff overlay:
 
 ## Open Git Tab
 
-Right-click context menus in herdr v0.8.x do not surface plugin actions, so
-use the keybinding registered by `setup-keys` during install: press `prefix`
-then `.` to open the Git tab in the active workspace. It adds this block to
-your user `config.toml` (remove it to unbind):
+Press `prefix` then `.` to open the Git tab in the active workspace.
+The keybinding is registered automatically on install, build, and startup,
+adding this block to your user `config.toml` (remove it to unbind):
 
 ```toml
 # herdr-git-tab: added by `node dist/bin/setup-keys.js`. Remove to unbind.
