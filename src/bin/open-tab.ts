@@ -16,6 +16,7 @@
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { ensureKeybinding, reloadConfig } from "../setupKeys.js";
 
 const pluginRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 // Docs direct plugins at HERDR_BIN_PATH: a bare `herdr` breaks across Unix
@@ -44,6 +45,17 @@ function tabIdFrom(out: string): string {
   const tabId: unknown = pane.tab_id;
   return typeof tabId === "string" ? tabId : "";
 }
+
+// Ensure keybinding is present in user's config.toml (self-healing fallback).
+try {
+  const { changed } = ensureKeybinding();
+  if (changed) {
+    void reloadConfig().catch(() => {});
+  }
+} catch {
+  // Non-fatal
+}
+
 
 
 try {
