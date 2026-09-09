@@ -275,10 +275,14 @@ export default function App({
     setPrDetailError("");
     setDetailScroll(0);
     setPrDetailLoading(true);
+    setBusy(busyLabel({ kind: "pr", number: num }));
     getPRDetail(repo, num)
       .then((d) => setPrDetail(d))
       .catch((e: unknown) => setPrDetailError(paneError(e)))
-      .finally(() => setPrDetailLoading(false));
+      .finally(() => {
+        setPrDetailLoading(false);
+        setBusy(null);
+      });
   };
   const openIssueDetail = (num: number): void => {
     setFiltering(false);
@@ -287,10 +291,14 @@ export default function App({
     setIssueDetailError("");
     setDetailScroll(0);
     setIssueDetailLoading(true);
+    setBusy(busyLabel({ kind: "issue", number: num }));
     getIssueDetail(repo, num)
       .then((d) => setIssueDetail(d))
       .catch((e: unknown) => setIssueDetailError(paneError(e)))
-      .finally(() => setIssueDetailLoading(false));
+      .finally(() => {
+        setIssueDetailLoading(false);
+        setBusy(null);
+      });
   };
   const openCommitDetail = (commitOrHash: string | Commit): void => {
     const hash = typeof commitOrHash === "string" ? commitOrHash : commitOrHash.hash;
@@ -300,29 +308,39 @@ export default function App({
     setFiltering(false);
     setError("");
     setDiffScroll(0);
+    setBusy(busyLabel({ kind: "commit", short }));
     getCommitDetail(repo, hash)
       .then((body) => setDiff({ title, body }))
-      .catch((e: unknown) => setError(paneError(e)));
+      .catch((e: unknown) => setError(paneError(e)))
+      .finally(() => setBusy(null));
   };
   const refreshPRDetail = (num: number): void => {
     setPrDetailLoading(true);
+    setBusy(busyLabel({ kind: "pr", number: num }));
     getPRDetail(repo, num)
       .then((d) => {
         setPrDetail(d);
         setPrDetailError("");
       })
       .catch((e: unknown) => setPrDetailError(paneError(e)))
-      .finally(() => setPrDetailLoading(false));
+      .finally(() => {
+        setPrDetailLoading(false);
+        setBusy(null);
+      });
   };
   const refreshIssueDetail = (num: number): void => {
     setIssueDetailLoading(true);
+    setBusy(busyLabel({ kind: "issue", number: num }));
     getIssueDetail(repo, num)
       .then((d) => {
         setIssueDetail(d);
         setIssueDetailError("");
       })
       .catch((e: unknown) => setIssueDetailError(paneError(e)))
-      .finally(() => setIssueDetailLoading(false));
+      .finally(() => {
+        setIssueDetailLoading(false);
+        setBusy(null);
+      });
   };
   // Single keyboard entry point for OpenTUI's native input (raw + Herdr
   // panes). Mouse is handled natively via onMouseDown/onMouseScroll, so no
@@ -422,9 +440,13 @@ export default function App({
         const num = prDetail?.number;
         if (num !== undefined) {
           setError("");
+          setBusy(busyLabel({ kind: "approve", number: num }));
           approvePR(repo, num)
             .then(() => refreshPRDetail(num))
-            .catch((e: unknown) => setError(paneError(e)));
+            .catch((e: unknown) => {
+              setError(paneError(e));
+              setBusy(null);
+            });
         }
         return;
       }
@@ -433,10 +455,14 @@ export default function App({
         if (num !== undefined && !checkingOut) {
           setError("");
           setCheckingOut(`PR #${num}`);
+          setBusy(busyLabel({ kind: "checkout-pr", number: num }));
           checkoutPR(repo, num)
-            .then(() => void load())
+            .then(() => void load({ manual: true }))
             .catch((e: unknown) => setError(paneError(e)))
-            .finally(() => setCheckingOut(null));
+            .finally(() => {
+              setCheckingOut(null);
+              setBusy(null);
+            });
         }
         return;
       }
@@ -538,9 +564,11 @@ export default function App({
         }
         setError("");
         setDiffScroll(0);
+        setBusy(busyLabel({ kind: "diff-branch", name: b.name }));
         getBranchDiff(repo, b.name)
           .then((body) => setDiff({ title: `diff ${b.name}`, body }))
-          .catch((e: unknown) => setError(paneError(e)));
+          .catch((e: unknown) => setError(paneError(e)))
+          .finally(() => setBusy(null));
         return;
       }
       if (activePane === 6) {
@@ -561,25 +589,29 @@ export default function App({
         }
         setError("");
         setDiffScroll(0);
+        setBusy(busyLabel({ kind: "diff-file", path: sel.path }));
         getFileDiff(repo, sel.path)
           .then((body) => setDiff({ title: `diff ${sel.path}`, body }))
-          .catch((e: unknown) => setError(paneError(e)));
+          .catch((e: unknown) => setError(paneError(e)))
+          .finally(() => setBusy(null));
         return;
       }
       return;
     }
     if (input === "c" && activePane === 4) {
       setError("");
-      setNotice("creating PR…");
+      setBusy(busyLabel({ kind: "create-pr" }));
+      setNotice("");
       startPRCreate(repo)
         .then((url) => {
           setNotice(url ? `created ${url}` : "created PR");
-          void load();
+          void load({ manual: true });
         })
         .catch((e: unknown) => {
           setNotice("");
           setError(paneError(e));
-        });
+        })
+        .finally(() => setBusy(null));
       return;
     }
     if (key.name === "return") {
@@ -589,10 +621,14 @@ export default function App({
         if (b && !b.name.startsWith("remotes/") && b.name !== "(detached)" && !checkingOut) {
           setError("");
           setCheckingOut(b.name);
+          setBusy(busyLabel({ kind: "checkout-branch", name: b.name }));
           checkoutBranch(repo, b.name)
-            .then(() => void load())
+            .then(() => void load({ manual: true }))
             .catch((e: unknown) => setError(paneError(e)))
-            .finally(() => setCheckingOut(null));
+            .finally(() => {
+              setCheckingOut(null);
+              setBusy(null);
+            });
         }
         return;
       }
@@ -710,10 +746,14 @@ export default function App({
               if (!b.name.startsWith("remotes/") && b.name !== "(detached)" && !checkingOut) {
                 setError("");
                 setCheckingOut(b.name);
+                setBusy(busyLabel({ kind: "checkout-branch", name: b.name }));
                 checkoutBranch(repo, b.name)
-                  .then(() => void load())
+                  .then(() => void load({ manual: true }))
                   .catch((e: unknown) => setError(paneError(e)))
-                  .finally(() => setCheckingOut(null));
+                  .finally(() => {
+                    setCheckingOut(null);
+                    setBusy(null);
+                  });
               }
             }}
           />
@@ -806,9 +846,11 @@ export default function App({
               } else {
                 setError("");
                 setDiffScroll(0);
+                setBusy(busyLabel({ kind: "diff-file", path: sel.path }));
                 getFileDiff(repo, sel.path)
                   .then((body) => setDiff({ title: `diff ${sel.path}`, body }))
-                  .catch((e: unknown) => setError(paneError(e)));
+                  .catch((e: unknown) => setError(paneError(e)))
+                  .finally(() => setBusy(null));
               }
             }}
           />
