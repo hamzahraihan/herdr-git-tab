@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { KeyEvent } from "@opentui/core";
 import { scrollDelta } from "./doubleClick.js";
@@ -114,6 +114,10 @@ export default function App({
   // `busy` drives the footer line; `checkingOut` only gates re-entry while one runs.
   const [checkingOut, setCheckingOut] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // First `[load]`-effect run is the initial mount (silent, first-paint
+  // gate covers it); later repo/scope changes reload as manual so the
+  // pane takes over instead of showing the old repo's content.
+  const mounted = useRef(false);
   // Current repo. Follows the workspace's live shell cwd (via the Herdr
   // socket CLI) so `cd` in a sibling pane repoints the TUI automatically —
   // no manual path entry. `--repo <path>` pins a fixed repo instead.
@@ -234,7 +238,12 @@ export default function App({
   }, [repo, scope]);
 
   useEffect(() => {
-    void load();
+    if (!mounted.current) {
+      mounted.current = true;
+      void load();
+      return;
+    }
+    void load({ manual: true });
   }, [load]);
 
   useEffect(() => {
@@ -421,7 +430,6 @@ export default function App({
       }
       if (input === "m") {
         setScope((s) => (s === "repo" ? "mine" : "repo"));
-        void load({ manual: true });
         closePRDetail();
         return;
       }
@@ -489,7 +497,6 @@ export default function App({
       }
       if (input === "m") {
         setScope((s) => (s === "repo" ? "mine" : "repo"));
-        void load({ manual: true });
         closeIssueDetail();
         return;
       }
@@ -527,7 +534,6 @@ export default function App({
     }
     if (input === "m") {
       setScope((s) => (s === "repo" ? "mine" : "repo"));
-      void load({ manual: true });
       return;
     }
     if (input === "j" || key.name === "down") {
@@ -777,12 +783,6 @@ export default function App({
                 if (d !== 0) setDetailScroll((v) => Math.max(0, v + d));
               }}
             >
-              {prDetailLoading && !prDetail ? (
-                <box>
-                  <text fg="cyan">● </text>
-                  <text> Loading PR…</text>
-                </box>
-              ) : null}
               {prDetailError && !prDetail ? (
                 <box flexDirection="column">
                   <text fg="red">{truncateToWidth(prDetailError, width)}</text>
@@ -812,12 +812,6 @@ export default function App({
                 if (d !== 0) setDetailScroll((v) => Math.max(0, v + d));
               }}
             >
-              {issueDetailLoading && !issueDetail ? (
-                <box>
-                  <text fg="cyan">● </text>
-                  <text> Loading issue…</text>
-                </box>
-              ) : null}
               {issueDetailError && !issueDetail ? (
                 <box flexDirection="column">
                   <text fg="red">{truncateToWidth(issueDetailError, width)}</text>
