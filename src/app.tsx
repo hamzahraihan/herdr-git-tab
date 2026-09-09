@@ -685,12 +685,6 @@ export default function App({
 
   return (
     <box flexDirection="column" width="100%">
-      {loading && commits.length === 0 && !status ? (
-        <box paddingX={1}>
-          <text fg="cyan">● </text>
-          <text> {truncateToWidth(`Loading ${repo}…`, width)}</text>
-        </box>
-      ) : null}
       <box paddingX={1}>
         <HeaderBar
           active={activePane}
@@ -702,157 +696,165 @@ export default function App({
         />
       </box>
       <box flexDirection="column" flexGrow={1} paddingX={1} paddingY={1}>
-        {diff ? (
-          <DiffView
-            title={diff.title}
-            body={diff.body}
-            scroll={diffScroll}
-            onScroll={(d) => setDiffScroll((v) => Math.max(0, v + d))}
-          />
-        ) : null}
-        {!diff && activePane === 1 && (
-          <HistoryPanel
-            commits={commits}
-            selected={selH}
-            query={query}
-            onSelect={(i) => setSelH(i)}
-            onDoubleClick={(c) => openCommitDetail(c)}
-          />
-        )}
-        {!diff && activePane === 2 && (
-          <FlowPanel
-            commits={commits}
-            branches={branches}
-            prs={prs}
-            selected={selH}
-            query={query}
-            mergedNames={mergedNames}
-            onSelect={(i) => setSelH(i)}
-            onDoubleClick={(row) => {
-              const hash = row.commits[0];
-              if (hash) openCommitDetail(hash);
-            }}
-          />
-        )}
-        {!diff && activePane === 3 && (
-          <BranchesPanel
-            branches={branches}
-            selected={selB}
-            filter={branchFilter}
-            error={paneErrors.branches}
-            onSelect={(i) => setSelB(i)}
-            onDoubleClick={(b) => {
-              if (!b.name.startsWith("remotes/") && b.name !== "(detached)" && !checkingOut) {
-                setError("");
-                setCheckingOut(b.name);
-                setBusy(busyLabel({ kind: "checkout-branch", name: b.name }));
-                checkoutBranch(repo, b.name)
-                  .then(() => void load({ manual: true }))
-                  .catch((e: unknown) => setError(paneError(e)))
-                  .finally(() => {
-                    setCheckingOut(null);
-                    setBusy(null);
-                  });
-              }
-            }}
-          />
-        )}
-        {!diff && activePane === 4 && !showingPRDetail && (
-          <PRsPanel
-            prs={prs}
-            selected={selPR}
-            query={query}
-            ghError={ghError}
-            noRemote={noRemote}
-            error={paneErrors.prs}
-            onSelect={(i) => setSelPR(i)}
-            onDoubleClick={(p) => openPRDetail(p.number)}
-          />
-        )}
-        {!diff && activePane === 4 && showingPRDetail && (
-          <box
-            flexDirection="column"
-            onMouseScroll={(e) => {
-              const d = scrollDelta(e);
-              if (d !== 0) setDetailScroll((v) => Math.max(0, v + d));
-            }}
-          >
-            {prDetailLoading && !prDetail ? (
-              <box>
-                <text fg="cyan">● </text>
-                <text> Loading PR…</text>
-              </box>
-            ) : null}
-            {prDetailError && !prDetail ? (
-              <box flexDirection="column">
-                <text fg="red">{truncateToWidth(prDetailError, width)}</text>
-                <text fg="gray">r retries · q/Esc back</text>
-              </box>
-            ) : null}
-            {prDetail ? <PRDetailPanel detail={prDetail} scroll={detailScroll} /> : null}
-          </box>
-        )}
-        {!diff && activePane === 5 && !showingIssueDetail && (
-          <IssuesPanel
-            issues={issues}
-            selected={selIssue}
-            query={query}
-            ghError={ghError}
-            noRemote={noRemote}
-            error={paneErrors.issues}
-            onSelect={(i) => setSelIssue(i)}
-            onDoubleClick={(iss) => openIssueDetail(iss.number)}
-          />
-        )}
-        {!diff && activePane === 5 && showingIssueDetail && (
-          <box
-            flexDirection="column"
-            onMouseScroll={(e) => {
-              const d = scrollDelta(e);
-              if (d !== 0) setDetailScroll((v) => Math.max(0, v + d));
-            }}
-          >
-            {issueDetailLoading && !issueDetail ? (
-              <box>
-                <text fg="cyan">● </text>
-                <text> Loading issue…</text>
-              </box>
-            ) : null}
-            {issueDetailError && !issueDetail ? (
-              <box flexDirection="column">
-                <text fg="red">{truncateToWidth(issueDetailError, width)}</text>
-                <text fg="gray">r retries · q/Esc back</text>
-              </box>
-            ) : null}
-            {issueDetail ? <IssueDetailPanel detail={issueDetail} scroll={detailScroll} /> : null}
-          </box>
-        )}
-        {!diff && activePane === 6 && (
-          <StatusPanel
-            status={status}
-            error={paneErrors.status}
-            stats={repoStats}
-            selected={selStatus}
-            onSelect={(i) => setSelStatus(i)}
-            onDoubleClick={(path) => {
-              if (!status) return;
-              const paths = statusPaths(status);
-              const sel = paths.find((p) => p.path === path);
-              if (!sel) return;
-              if (sel.kind === "untracked") {
-                setDiffScroll(0);
-                setDiff({ title: `diff ${sel.path}`, body: `(untracked ${sel.path}: no diff)` });
-              } else {
-                setError("");
-                setDiffScroll(0);
-                setBusy(busyLabel({ kind: "diff-file", path: sel.path }));
-                getFileDiff(repo, sel.path)
-                  .then((body) => setDiff({ title: `diff ${sel.path}`, body }))
-                  .catch((e: unknown) => setError(paneError(e)))
-                  .finally(() => setBusy(null));
-              }
-            }}
-          />
+        {busy ? (
+          <LoadingView label={busy} width={width} />
+        ) : loading && commits.length === 0 && !status ? (
+          <LoadingView label={`Loading ${repo}…`} width={width} />
+        ) : (
+          <>
+          {diff ? (
+            <DiffView
+              title={diff.title}
+              body={diff.body}
+              scroll={diffScroll}
+              onScroll={(d) => setDiffScroll((v) => Math.max(0, v + d))}
+            />
+          ) : null}
+          {!diff && activePane === 1 && (
+            <HistoryPanel
+              commits={commits}
+              selected={selH}
+              query={query}
+              onSelect={(i) => setSelH(i)}
+              onDoubleClick={(c) => openCommitDetail(c)}
+            />
+          )}
+          {!diff && activePane === 2 && (
+            <FlowPanel
+              commits={commits}
+              branches={branches}
+              prs={prs}
+              selected={selH}
+              query={query}
+              mergedNames={mergedNames}
+              onSelect={(i) => setSelH(i)}
+              onDoubleClick={(row) => {
+                const hash = row.commits[0];
+                if (hash) openCommitDetail(hash);
+              }}
+            />
+          )}
+          {!diff && activePane === 3 && (
+            <BranchesPanel
+              branches={branches}
+              selected={selB}
+              filter={branchFilter}
+              error={paneErrors.branches}
+              onSelect={(i) => setSelB(i)}
+              onDoubleClick={(b) => {
+                if (!b.name.startsWith("remotes/") && b.name !== "(detached)" && !checkingOut) {
+                  setError("");
+                  setCheckingOut(b.name);
+                  setBusy(busyLabel({ kind: "checkout-branch", name: b.name }));
+                  checkoutBranch(repo, b.name)
+                    .then(() => void load({ manual: true }))
+                    .catch((e: unknown) => setError(paneError(e)))
+                    .finally(() => {
+                      setCheckingOut(null);
+                      setBusy(null);
+                    });
+                }
+              }}
+            />
+          )}
+          {!diff && activePane === 4 && !showingPRDetail && (
+            <PRsPanel
+              prs={prs}
+              selected={selPR}
+              query={query}
+              ghError={ghError}
+              noRemote={noRemote}
+              error={paneErrors.prs}
+              onSelect={(i) => setSelPR(i)}
+              onDoubleClick={(p) => openPRDetail(p.number)}
+            />
+          )}
+          {!diff && activePane === 4 && showingPRDetail && (
+            <box
+              flexDirection="column"
+              onMouseScroll={(e) => {
+                const d = scrollDelta(e);
+                if (d !== 0) setDetailScroll((v) => Math.max(0, v + d));
+              }}
+            >
+              {prDetailLoading && !prDetail ? (
+                <box>
+                  <text fg="cyan">● </text>
+                  <text> Loading PR…</text>
+                </box>
+              ) : null}
+              {prDetailError && !prDetail ? (
+                <box flexDirection="column">
+                  <text fg="red">{truncateToWidth(prDetailError, width)}</text>
+                  <text fg="gray">r retries · q/Esc back</text>
+                </box>
+              ) : null}
+              {prDetail ? <PRDetailPanel detail={prDetail} scroll={detailScroll} /> : null}
+            </box>
+          )}
+          {!diff && activePane === 5 && !showingIssueDetail && (
+            <IssuesPanel
+              issues={issues}
+              selected={selIssue}
+              query={query}
+              ghError={ghError}
+              noRemote={noRemote}
+              error={paneErrors.issues}
+              onSelect={(i) => setSelIssue(i)}
+              onDoubleClick={(iss) => openIssueDetail(iss.number)}
+            />
+          )}
+          {!diff && activePane === 5 && showingIssueDetail && (
+            <box
+              flexDirection="column"
+              onMouseScroll={(e) => {
+                const d = scrollDelta(e);
+                if (d !== 0) setDetailScroll((v) => Math.max(0, v + d));
+              }}
+            >
+              {issueDetailLoading && !issueDetail ? (
+                <box>
+                  <text fg="cyan">● </text>
+                  <text> Loading issue…</text>
+                </box>
+              ) : null}
+              {issueDetailError && !issueDetail ? (
+                <box flexDirection="column">
+                  <text fg="red">{truncateToWidth(issueDetailError, width)}</text>
+                  <text fg="gray">r retries · q/Esc back</text>
+                </box>
+              ) : null}
+              {issueDetail ? <IssueDetailPanel detail={issueDetail} scroll={detailScroll} /> : null}
+            </box>
+          )}
+          {!diff && activePane === 6 && (
+            <StatusPanel
+              status={status}
+              error={paneErrors.status}
+              stats={repoStats}
+              selected={selStatus}
+              onSelect={(i) => setSelStatus(i)}
+              onDoubleClick={(path) => {
+                if (!status) return;
+                const paths = statusPaths(status);
+                const sel = paths.find((p) => p.path === path);
+                if (!sel) return;
+                if (sel.kind === "untracked") {
+                  setDiffScroll(0);
+                  setDiff({ title: `diff ${sel.path}`, body: `(untracked ${sel.path}: no diff)` });
+                } else {
+                  setError("");
+                  setDiffScroll(0);
+                  setBusy(busyLabel({ kind: "diff-file", path: sel.path }));
+                  getFileDiff(repo, sel.path)
+                    .then((body) => setDiff({ title: `diff ${sel.path}`, body }))
+                    .catch((e: unknown) => setError(paneError(e)))
+                    .finally(() => setBusy(null));
+                }
+              }}
+            />
+          )}
+          </>
         )}
       </box>
       {filtering ? (
@@ -861,12 +863,6 @@ export default function App({
             /{truncateToWidth(activePane === 3 ? branchFilter : query, Math.max(8, width - 16))}
           </text>
           <text fg="gray"> (esc/ent done)</text>
-        </box>
-      ) : null}
-      {busy ? (
-        <box paddingX={1}>
-          <text fg="cyan">● </text>
-          <text>{truncateToWidth(busy, width)}</text>
         </box>
       ) : null}
       {notice ? (
@@ -889,6 +885,14 @@ export default function App({
       <box>
         <KeyBar text={footerHint} width={width} />
       </box>
+    </box>
+  );
+}
+function LoadingView({ label, width }: { label: string; width: number }) {
+  return (
+    <box padding={1}>
+      <text fg="cyan">● </text>
+      <text>{truncateToWidth(label, Math.max(8, width - 4))}</text>
     </box>
   );
 }
