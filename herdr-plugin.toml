@@ -14,6 +14,13 @@ command = ["pnpm", "approve-builds", "esbuild"]
 [[build]]
 command = ["pnpm", "build"]
 
+[[build]]
+command = ["node", "dist/bin/setup-keys.js", "--auto"]
+
+# Automatically ensure keybinding is registered when Herdr starts.
+[[startup]]
+command = ["node", "dist/bin/setup-keys.js", "--auto"]
+
 # Right-click "Open Git Tab" on a Herdr workspace.
 [[actions]]
 id = "open-git-tab"
