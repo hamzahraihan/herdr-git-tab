@@ -51,31 +51,38 @@ export function keybindingBlock(key: string): string {
   );
 }
 
-/** True when the config does not reference our action yet. */
+/** Regex matching a commented-out herdr-git-tab keybinding block so installBlock can replace it cleanly. */
+const COMMENTED_BLOCK_REGEX =
+  /(?:^[ \t]*#[^\n]*herdr-git-tab[^\n]*\r?\n)?[ \t]*#[^\n]*\[\[keys\.command\]\][\s\S]*?^[ \t]*#[^\n]*command\s*=\s*["']herdr-git-tab\.open-git-tab["'][^\n]*(?:\r?\n[ \t]*#[^\n]*description[^\n]*)?/m;
+
+/** True when the config does not contain an active (uncommented) reference to our action. */
 export function needsInstall(content: string): boolean {
-  return !content.includes(ACTION_ID);
+  const activeCommand = new RegExp(`^\\s*command\\s*=\\s*["']${ACTION_ID}["']`, "m");
+  return !activeCommand.test(content);
 }
 
-/** Append the block, preserving one trailing newline and blank-line gap. */
+/** Append the block, replacing any commented-out template and preserving trailing newline. */
 export function installBlock(content: string, key: string): string {
-  if (content.trim().length === 0) return `${keybindingBlock(key)}\n`;
-  return `${content.replace(/\s+$/, "")}\n\n${keybindingBlock(key)}\n`;
+  const cleaned = content.replace(COMMENTED_BLOCK_REGEX, "").replace(/\s+$/, "");
+  if (cleaned.trim().length === 0) return `${keybindingBlock(key)}\n`;
+  return `${cleaned}\n\n${keybindingBlock(key)}\n`;
 }
 
 export function ensureKeybinding(
   key: string = DEFAULT_KEY,
-  filePath: string = configPath(),
+  filePath?: string,
 ): { path: string; changed: boolean } {
-  mkdirSync(dirname(filePath), { recursive: true });
+  const targetPath = filePath ?? configPath();
+  mkdirSync(dirname(targetPath), { recursive: true });
   let content = "";
   try {
-    content = readFileSync(filePath, "utf8");
+    content = readFileSync(targetPath, "utf8");
   } catch {
     content = "";
   }
-  if (!needsInstall(content)) return { path: filePath, changed: false };
-  writeFileSync(filePath, installBlock(content, key));
-  return { path: filePath, changed: true };
+  if (!needsInstall(content)) return { path: targetPath, changed: false };
+  writeFileSync(targetPath, installBlock(content, key));
+  return { path: targetPath, changed: true };
 }
 
 function herdrBin(): string {
