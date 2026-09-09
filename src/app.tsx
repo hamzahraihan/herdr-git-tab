@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Box, Text, useApp, useInput, useStdin } from "ink";
-import type { Key } from "ink";
-import Spinner from "ink-spinner";
+import React, { useCallback, useEffect, useState } from "react";
+import { useKeyboard } from "@opentui/react";
+import type { KeyEvent } from "@opentui/core";
+import { scrollDelta } from "./doubleClick.js";
 import type {
   Branch,
   Commit,
@@ -18,6 +18,7 @@ import {
   getBranchDiff,
   getBranches,
   getFileDiff,
+  getCommitDetail,
   getHistory,
   getMergedBranches,
   getRepoStats,
@@ -39,17 +40,8 @@ import {
 } from "./github.js";
 import { defaultShellCwdFile, findNearestGitRepo, readShellCwdFile } from "./repoResolver.js";
 import { getWorkspaceCwd } from "./herdrWorkspace.js";
-import { createPipeParser } from "./pipeInput.js";
 import { cellWidth, terminalWidth, truncateToWidth } from "./width.js";
 import { KEYBAR_BG } from "./theme.js";
-import {
-  MOUSE_DISABLE,
-  MOUSE_ENABLE,
-  createMouseParser,
-  rowIndexAt,
-  tabRanges,
-  type MouseEvent,
-} from "./mouse.js";
 import HeaderBar from "./views/TabBar.js";
 import HistoryPanel, { historyVisibleRows } from "./views/HistoryPanel.js";
 import FlowPanel, { flowVisibleRows } from "./views/FlowPanel.js";
@@ -77,8 +69,7 @@ export default function App({
   refreshSecs?: number;
   watch?: boolean;
 }) {
-  const { exit } = useApp();
-  const { isRawModeSupported } = useStdin();
+  const exit = () => process.exit(0);
   const [commits, setCommits] = useState<Commit[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [status, setStatus] = useState<RepoStatus | null>(null);
@@ -295,6 +286,18 @@ export default function App({
       .catch((e: unknown) => setIssueDetailError(paneError(e)))
       .finally(() => setIssueDetailLoading(false));
   };
+  const openCommitDetail = (commitOrHash: string | Commit): void => {
+    const hash = typeof commitOrHash === "string" ? commitOrHash : commitOrHash.hash;
+    const short = typeof commitOrHash === "string" ? commitOrHash.slice(0, 7) : commitOrHash.shortHash;
+    const subject = typeof commitOrHash === "string" ? "" : commitOrHash.subject;
+    const title = subject ? `commit ${short}: ${subject}` : `commit ${short}`;
+    setFiltering(false);
+    setError("");
+    setDiffScroll(0);
+    getCommitDetail(repo, hash)
+      .then((body) => setDiff({ title, body }))
+      .catch((e: unknown) => setError(paneError(e)));
+  };
   const refreshPRDetail = (num: number): void => {
     setPrDetailLoading(true);
     getPRDetail(repo, num)
@@ -315,23 +318,25 @@ export default function App({
       .catch((e: unknown) => setIssueDetailError(paneError(e)))
       .finally(() => setIssueDetailLoading(false));
   };
-  // Named so both Ink's raw-mode input and the pipe reader below share it.
-  const handleKeyInput = (input: string, key: Key) => {
-    // Mouse-reporting ghosts: click/wheel bytes Ink's key decoder doesn't
-    // understand (the pipe decoder swallows them; raw mode can't intercept,
-    // so the distinctive shapes are dropped here before they type anything).
-    if (/^\[<\d+;\d+;\d+[Mm]$/.test(input) || /^\[M[\s\S]{3}$/.test(input)) return;
+  // Single keyboard entry point for OpenTUI's native input (raw + Herdr
+  // panes). Mouse is handled natively via onMouseDown/onMouseScroll, so no
+  // stdin byte filtering is needed here.
+  const handleKeyInput = (input: string, key: KeyEvent) => {
+    if (key.ctrl && key.name === "c") {
+      exit();
+      return;
+    }
     if (filtering) {
-      if (key.escape) {
+      if (key.name === "escape") {
         setFiltering(false);
         if (activePane === 3) setBranchFilter("");
         return;
       }
-      if (key.return) {
+      if (key.name === "return") {
         setFiltering(false);
         return;
       }
-      if (key.backspace || key.delete) {
+      if (key.name === "backspace" || key.name === "delete") {
         if (activePane === 3) setBranchFilter((q) => q.slice(0, -1));
         else setQuery((q) => q.slice(0, -1));
         return;
@@ -345,7 +350,7 @@ export default function App({
     // Diff overlay (`d` for branches / status files) sits on top: scroll it
     // or dismiss it; nothing else runs while it is open.
     if (diff) {
-      if (key.escape || input === "q") {
+      if (key.name === "escape" || input === "q") {
         setDiff(null);
         setDiffScroll(0);
         return;
@@ -356,11 +361,11 @@ export default function App({
         setDiffScroll(0);
         return;
       }
-      if (input === "j" || key.downArrow) {
+      if (input === "j" || key.name === "down") {
         setDiffScroll((v) => v + 1);
         return;
       }
-      if (input === "k" || key.upArrow) {
+      if (input === "k" || key.name === "up") {
         setDiffScroll((v) => Math.max(0, v - 1));
         return;
       }
@@ -374,7 +379,7 @@ export default function App({
     // PR detail: read description + discussion, then approve or check out.
     // No merge, ready, or terminal diff commands run from here by design.
     if (showingPRDetail) {
-      if (key.escape || input === "q") {
+      if (key.name === "escape" || input === "q") {
         closePRDetail();
         return;
       }
@@ -383,11 +388,11 @@ export default function App({
         closePRDetail();
         return;
       }
-      if (input === "j" || key.downArrow) {
+      if (input === "j" || key.name === "down") {
         setDetailScroll((v) => v + 1);
         return;
       }
-      if (input === "k" || key.upArrow) {
+      if (input === "k" || key.name === "up") {
         setDetailScroll((v) => Math.max(0, v - 1));
         return;
       }
@@ -416,7 +421,7 @@ export default function App({
         }
         return;
       }
-      if (input === "c" || key.return) {
+      if (input === "c" || key.name === "return") {
         const num = prDetail?.number;
         if (num !== undefined && !checkingOut) {
           setError("");
@@ -433,7 +438,7 @@ export default function App({
       return;
     }
     if (showingIssueDetail) {
-      if (key.escape || input === "q") {
+      if (key.name === "escape" || input === "q") {
         closeIssueDetail();
         return;
       }
@@ -442,11 +447,11 @@ export default function App({
         closeIssueDetail();
         return;
       }
-      if (input === "j" || key.downArrow) {
+      if (input === "j" || key.name === "down") {
         setDetailScroll((v) => v + 1);
         return;
       }
-      if (input === "k" || key.upArrow) {
+      if (input === "k" || key.name === "up") {
         setDetailScroll((v) => Math.max(0, v - 1));
         return;
       }
@@ -473,7 +478,7 @@ export default function App({
       setActivePane(Number(input));
       return;
     }
-    if (key.escape) return;
+    if (key.name === "escape") return;
     if (input === "q") {
       exit();
       return;
@@ -491,7 +496,7 @@ export default function App({
       setScope((s) => (s === "repo" ? "mine" : "repo"));
       return;
     }
-    if (input === "j" || key.downArrow) {
+    if (input === "j" || key.name === "down") {
       if (activePane === 1 || activePane === 2) setSelH((v) => v + 1);
       else if (activePane === 3) setSelB((v) => Math.min(v + 1, branches.length - 1));
       else if (activePane === 4) setSelPR((v) => Math.min(v + 1, prs.length - 1));
@@ -502,7 +507,7 @@ export default function App({
       }
       return;
     }
-    if (input === "k" || key.upArrow) {
+    if (input === "k" || key.name === "up") {
       if (activePane === 1 || activePane === 2) setSelH((v) => Math.max(0, v - 1));
       else if (activePane === 3) setSelB((v) => Math.max(0, v - 1));
       else if (activePane === 4) setSelPR((v) => Math.max(0, v - 1));
@@ -568,7 +573,7 @@ export default function App({
         });
       return;
     }
-    if (key.return) {
+    if (key.name === "return") {
       if (activePane === 3) {
         const shown = filterBranches(branches, branchFilter);
         const b = shown[Math.min(selB, Math.max(0, shown.length - 1))] ?? branches[selB];
@@ -597,165 +602,21 @@ export default function App({
     }
   };
 
-  useInput(handleKeyInput, { isActive: isRawModeSupported === true });
-
-  // Piped stdin (Herdr panes) has no raw mode, so Ink's useInput stays off
-  // and keypresses are decoded from `data` events instead. A ref mirrors the
-  // latest handler so the subscription is installed once.
-  const keyHandlerRef = useRef(handleKeyInput);
-  keyHandlerRef.current = handleKeyInput;
-  useEffect(() => {
-    if (isRawModeSupported) return;
-    const parser = createPipeParser();
-    const stdin = process.stdin;
-    stdin.setEncoding("utf8");
-    const onData = (data: string) => {
-      for (const press of parser.push(data)) {
-        if (press.key.ctrl && press.input === "c") {
-          exit();
-          return;
-        }
-        keyHandlerRef.current(press.input, press.key);
-      }
-    };
-    stdin.on("data", onData);
-    return () => {
-      stdin.off("data", onData);
-    };
-  }, [isRawModeSupported, exit]);
-
-  // Mouse: left-click the header strip or a row to select it, wheel to move
-  // the selection. Geometry mirrors the render tree: optional loading line,
-  // the header strip (2 rows: info + tabs, then the gray divider), one blank
-  // padding row, then content rows (each exactly one visual row — see
-  // width.ts), so terminal cells map deterministically.
-  const TAB_STRIP_HEIGHT = 2;
-  const handleMouseInput = (m: MouseEvent) => {
-    if (m.button === "wheel-up" || m.button === "wheel-down") {
-      const d = m.button === "wheel-up" ? -1 : 1;
-      if (diff) {
-        setDiffScroll((v) => Math.max(0, v + d));
-        return;
-      }
-      if (activePane === 4 && (prDetail || prDetailLoading || prDetailError)) {
-        setDetailScroll((v) => Math.max(0, v + d));
-        return;
-      }
-      if (activePane === 5 && (issueDetail || issueDetailLoading || issueDetailError)) {
-        setDetailScroll((v) => Math.max(0, v + d));
-        return;
-      }
-      if (activePane === 1 || activePane === 2) setSelH((v) => Math.max(0, v + d));
-      else if (activePane === 3)
-        setSelB((v) => Math.min(Math.max(0, v + d), branches.length - 1));
-      else if (activePane === 4)
-        setSelPR((v) => Math.min(Math.max(0, v + d), prs.length - 1));
-      else if (activePane === 5)
-        setSelIssue((v) => Math.min(Math.max(0, v + d), issues.length - 1));
-      else if (activePane === 6 && status) {
-        const total = statusPaths(status).length;
-        setSelStatus((v) => Math.min(Math.max(0, v + d), Math.max(0, total - 1)));
-      }
-      return;
-    }
-    if (m.button !== "left") return;
-    const loadingLine = loading && commits.length === 0 && !status;
-    const tabbarY = loadingLine ? 2 : 1;
-    if (m.y >= tabbarY && m.y < tabbarY + 1) {
-      const hit = tabRanges(terminalWidth()).find((t) => m.x >= t.x0 && m.x <= t.x1);
-      if (hit) setActivePane(hit.id);
-      return;
-    }
-    if (diff || (activePane === 4 && (prDetail || prDetailLoading || prDetailError)) || (activePane === 5 && (issueDetail || issueDetailLoading || issueDetailError))) return;
-    if (m.x < 2 || m.x > width) return;
-    const dy = m.y - (tabbarY + TAB_STRIP_HEIGHT + 1);
-    if (dy < 0) return;
-    if (activePane === 1) {
-      const { rows, start } = historyVisibleRows(commits, query, selH);
-      const k = rowIndexAt(
-        dy,
-        rows.map(() => 1),
-      );
-      if (k !== null) setSelH(start + k);
-    } else if (activePane === 2) {
-      const { view, start } = flowVisibleRows(commits, branches, prs, query, mergedNames, selH);
-      const k = rowIndexAt(
-        dy,
-        view.map(() => 1),
-      );
-      if (k !== null) setSelH(start + k);
-    } else if (activePane === 3) {
-      const shown = filterBranches(branches, branchFilter).slice(0, 30);
-      const k = rowIndexAt(
-        dy,
-        shown.map(() => 1),
-      );
-      if (k !== null) setSelB(k);
-    } else if (activePane === 4) {
-      const shown = filterPRs(prs, query).slice(0, 30);
-      const k = rowIndexAt(
-        dy,
-        shown.map(() => 2),
-      );
-      if (k !== null) setSelPR(k);
-    } else if (activePane === 5) {
-      const shown = filterIssues(issues, query).slice(0, 20);
-      const k = rowIndexAt(
-        dy,
-        shown.map(() => 3),
-      );
-      if (k !== null) setSelIssue(k);
-    } else if (activePane === 6 && status) {
-      const paths = statusPaths(status).slice(0, 30);
-      const k = rowIndexAt(
-        dy,
-        paths.map(() => 1),
-      );
-      if (k !== null) setSelStatus(k);
-    }
-  };
-
-  // Opt the terminal into click/wheel reporting (SGR mode). Restored on exit
-  // so the surrounding shell keeps normal selection behavior. Unsupported
-  // terminals ignore the codes and nothing changes for them.
-  useEffect(() => {
-    if (!process.stdout.isTTY) return;
-    process.stdout.write(MOUSE_ENABLE);
-    return () => {
-      process.stdout.write(MOUSE_DISABLE);
-    };
-  }, []);
-
-  // Mouse bytes share stdin with keys in both raw and pipe modes; the mouse
-  // decoder only reacts to click/wheel sequences and ignores the rest.
-  const mouseHandlerRef = useRef(handleMouseInput);
-  mouseHandlerRef.current = handleMouseInput;
-  useEffect(() => {
-    const parser = createMouseParser();
-    const stdin = process.stdin;
-    stdin.setEncoding("utf8");
-    const onData = (data: string) => {
-      for (const ev of parser.push(data)) {
-        if (ev.pressed) mouseHandlerRef.current(ev);
-      }
-    };
-    stdin.on("data", onData);
-    return () => {
-      stdin.off("data", onData);
-    };
-  }, []);
+  useKeyboard((key) => {
+    handleKeyInput(key.sequence || key.name || "", key);
+  });
 
   const width = terminalWidth();
   if (fatal) {
     return (
-      <Box flexDirection="column" padding={1}>
+      <box flexDirection="column" padding={1}>
         {fatal.split("\n").map((line, i) => (
-          <Text key={i} color={i === 0 ? "red" : "gray"}>
+          <text key={i} fg={i === 0 ? "red" : "gray"}>
             {truncateToWidth(line, width)}
-          </Text>
+          </text>
         ))}
-        <Text color="gray">{truncateToWidth(`q quit · ${repo}`, width)}</Text>
-      </Box>
+        <text fg="gray">{truncateToWidth(`q quit · ${repo}`, width)}</text>
+      </box>
     );
   }
 
@@ -779,33 +640,55 @@ export default function App({
     footerHint = `j/k select · d diff · m scope:${scopeLabel} · r refresh · q quit · ${repo}${fixedRepo ? "" : " (auto)"}`;
 
   return (
-    <Box flexDirection="column" width="100%">
+    <box flexDirection="column" width="100%">
       {loading && commits.length === 0 && !status ? (
-        <Box paddingX={1}>
-          <Text color="cyan">
-            <Spinner type="dots" />
-          </Text>
-          <Text> {truncateToWidth(`Loading ${repo}…`, width)}</Text>
-        </Box>
+        <box paddingX={1}>
+          <text fg="cyan">● </text>
+          <text> {truncateToWidth(`Loading ${repo}…`, width)}</text>
+        </box>
       ) : null}
-      <Box paddingX={1}>
+      <box paddingX={1}>
         <HeaderBar
           active={activePane}
           repo={repoName(repo)}
           current={branches.find((b) => b.current)?.name ?? null}
           upstream={branches.find((b) => b.current)?.upstream}
           changes={status ? statusPaths(status).length : 0}
+          onSelectTab={setActivePane}
         />
-      </Box>
-      <Box flexDirection="column" flexGrow={1} paddingX={1} paddingY={1}>
+      </box>
+      <box flexDirection="column" flexGrow={1} paddingX={1} paddingY={1}>
         {diff ? (
-          <DiffView title={diff.title} body={diff.body} scroll={diffScroll} />
+          <DiffView
+            title={diff.title}
+            body={diff.body}
+            scroll={diffScroll}
+            onScroll={(d) => setDiffScroll((v) => Math.max(0, v + d))}
+          />
         ) : null}
         {!diff && activePane === 1 && (
-          <HistoryPanel commits={commits} selected={selH} query={query} />
+          <HistoryPanel
+            commits={commits}
+            selected={selH}
+            query={query}
+            onSelect={(i) => setSelH(i)}
+            onDoubleClick={(c) => openCommitDetail(c)}
+          />
         )}
         {!diff && activePane === 2 && (
-          <FlowPanel commits={commits} branches={branches} prs={prs} selected={selH} query={query} mergedNames={mergedNames} />
+          <FlowPanel
+            commits={commits}
+            branches={branches}
+            prs={prs}
+            selected={selH}
+            query={query}
+            mergedNames={mergedNames}
+            onSelect={(i) => setSelH(i)}
+            onDoubleClick={(row) => {
+              const hash = row.commits[0];
+              if (hash) openCommitDetail(hash);
+            }}
+          />
         )}
         {!diff && activePane === 3 && (
           <BranchesPanel
@@ -813,6 +696,17 @@ export default function App({
             selected={selB}
             filter={branchFilter}
             error={paneErrors.branches}
+            onSelect={(i) => setSelB(i)}
+            onDoubleClick={(b) => {
+              if (!b.name.startsWith("remotes/") && b.name !== "(detached)" && !checkingOut) {
+                setError("");
+                setCheckingOut(b.name);
+                checkoutBranch(repo, b.name)
+                  .then(() => void load())
+                  .catch((e: unknown) => setError(paneError(e)))
+                  .finally(() => setCheckingOut(null));
+              }
+            }}
           />
         )}
         {!diff && activePane === 4 && !showingPRDetail && (
@@ -823,26 +717,32 @@ export default function App({
             ghError={ghError}
             noRemote={noRemote}
             error={paneErrors.prs}
+            onSelect={(i) => setSelPR(i)}
+            onDoubleClick={(p) => openPRDetail(p.number)}
           />
         )}
         {!diff && activePane === 4 && showingPRDetail && (
-          <Box flexDirection="column">
+          <box
+            flexDirection="column"
+            onMouseScroll={(e) => {
+              const d = scrollDelta(e);
+              if (d !== 0) setDetailScroll((v) => Math.max(0, v + d));
+            }}
+          >
             {prDetailLoading && !prDetail ? (
-              <Box>
-                <Text color="cyan">
-                  <Spinner type="dots" />
-                </Text>
-                <Text> Loading PR…</Text>
-              </Box>
+              <box>
+                <text fg="cyan">● </text>
+                <text> Loading PR…</text>
+              </box>
             ) : null}
             {prDetailError && !prDetail ? (
-              <Box flexDirection="column">
-                <Text color="red">{truncateToWidth(prDetailError, width)}</Text>
-                <Text color="gray">r retries · q/Esc back</Text>
-              </Box>
+              <box flexDirection="column">
+                <text fg="red">{truncateToWidth(prDetailError, width)}</text>
+                <text fg="gray">r retries · q/Esc back</text>
+              </box>
             ) : null}
             {prDetail ? <PRDetailPanel detail={prDetail} scroll={detailScroll} /> : null}
-          </Box>
+          </box>
         )}
         {!diff && activePane === 5 && !showingIssueDetail && (
           <IssuesPanel
@@ -852,78 +752,104 @@ export default function App({
             ghError={ghError}
             noRemote={noRemote}
             error={paneErrors.issues}
+            onSelect={(i) => setSelIssue(i)}
+            onDoubleClick={(iss) => openIssueDetail(iss.number)}
           />
         )}
         {!diff && activePane === 5 && showingIssueDetail && (
-          <Box flexDirection="column">
+          <box
+            flexDirection="column"
+            onMouseScroll={(e) => {
+              const d = scrollDelta(e);
+              if (d !== 0) setDetailScroll((v) => Math.max(0, v + d));
+            }}
+          >
             {issueDetailLoading && !issueDetail ? (
-              <Box>
-                <Text color="cyan">
-                  <Spinner type="dots" />
-                </Text>
-                <Text> Loading issue…</Text>
-              </Box>
+              <box>
+                <text fg="cyan">● </text>
+                <text> Loading issue…</text>
+              </box>
             ) : null}
             {issueDetailError && !issueDetail ? (
-              <Box flexDirection="column">
-                <Text color="red">{truncateToWidth(issueDetailError, width)}</Text>
-                <Text color="gray">r retries · q/Esc back</Text>
-              </Box>
+              <box flexDirection="column">
+                <text fg="red">{truncateToWidth(issueDetailError, width)}</text>
+                <text fg="gray">r retries · q/Esc back</text>
+              </box>
             ) : null}
             {issueDetail ? <IssueDetailPanel detail={issueDetail} scroll={detailScroll} /> : null}
-          </Box>
+          </box>
         )}
         {!diff && activePane === 6 && (
-          <StatusPanel status={status} error={paneErrors.status} stats={repoStats} selected={selStatus} />
+          <StatusPanel
+            status={status}
+            error={paneErrors.status}
+            stats={repoStats}
+            selected={selStatus}
+            onSelect={(i) => setSelStatus(i)}
+            onDoubleClick={(path) => {
+              if (!status) return;
+              const paths = statusPaths(status);
+              const sel = paths.find((p) => p.path === path);
+              if (!sel) return;
+              if (sel.kind === "untracked") {
+                setDiffScroll(0);
+                setDiff({ title: `diff ${sel.path}`, body: `(untracked ${sel.path}: no diff)` });
+              } else {
+                setError("");
+                setDiffScroll(0);
+                getFileDiff(repo, sel.path)
+                  .then((body) => setDiff({ title: `diff ${sel.path}`, body }))
+                  .catch((e: unknown) => setError(paneError(e)));
+              }
+            }}
+          />
         )}
-      </Box>
+      </box>
       {filtering ? (
-        <Box paddingX={1}>
-          <Text color="cyan">
+        <box paddingX={1}>
+          <text fg="cyan">
             /{truncateToWidth(activePane === 3 ? branchFilter : query, Math.max(8, width - 16))}
-          </Text>
-          <Text color="gray"> (esc/ent done)</Text>
-        </Box>
+          </text>
+          <text fg="gray"> (esc/ent done)</text>
+        </box>
       ) : null}
       {checkingOut ? (
-        <Box paddingX={1}>
-          <Text color="cyan">
-            <Spinner type="dots" />
-          </Text>
-          <Text> {truncateToWidth(`Checking out ${checkingOut}…`, width)}</Text>
-        </Box>
+        <box paddingX={1}>
+          <text fg="cyan">● </text>
+          <text> {truncateToWidth(`Checking out ${checkingOut}…`, width)}</text>
+        </box>
       ) : null}
       {notice ? (
-        <Box paddingX={1}>
-          <Text color="green">{truncateToWidth(notice, width)}</Text>
-        </Box>
+        <box paddingX={1}>
+          <text fg="green">{truncateToWidth(notice, width)}</text>
+        </box>
       ) : null}
       {error ? (
-        <Box paddingX={1}>
-          <Text color="red">{truncateToWidth(error, width)}</Text>
-        </Box>
+        <box paddingX={1}>
+          <text fg="red">{truncateToWidth(error, width)}</text>
+        </box>
       ) : null}
       {(prDetailError && prDetail) || (issueDetailError && issueDetail) ? (
-        <Box paddingX={1}>
-          <Text color="red">
+        <box paddingX={1}>
+          <text fg="red">
             {truncateToWidth((prDetailError || issueDetailError) as string, width)}
-          </Text>
-        </Box>
+          </text>
+        </box>
       ) : null}
-      <Box>
+      <box>
         <KeyBar text={footerHint} width={width} />
-      </Box>
-    </Box>
+      </box>
+    </box>
   );
 }
 function KeyBar({ text, width }: { text: string; width: number }) {
   const label = truncateToWidth(text, Math.max(8, width - 2));
   const fill = " ".repeat(Math.max(0, width - cellWidth(label) - 2));
   return (
-    <Text backgroundColor={KEYBAR_BG} color="white">
+    <text bg={KEYBAR_BG} fg="white">
       {` ${label} `}
       {fill}
-    </Text>
+    </text>
   );
 }
 

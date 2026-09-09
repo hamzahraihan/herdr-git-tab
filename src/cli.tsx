@@ -2,7 +2,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import React from "react";
-import { render } from "ink";
+import { createCliRenderer } from "@opentui/core";
+import { createRoot } from "@opentui/react";
 import App from "./app.js";
 import { findNearestGitRepo } from "./repoResolver.js";
 
@@ -67,6 +68,22 @@ if (!process.stdout.isTTY) {
   process.exit(await nonTtyFallback(initialRepo));
 }
 
-render(
+let renderer;
+try {
+  renderer = await createCliRenderer({
+    screenMode: "alternate-screen",
+    useMouse: true,
+  });
+} catch (e) {
+  const msg = e instanceof Error ? e.message : String(e);
+  process.stderr.write(
+    `herdr-git-tab: failed to start the TUI renderer: ${msg}\n` +
+      `This build uses OpenTUI, which requires Node >= 26.4 (you have ${process.version}). ` +
+      `Upgrade Node (e.g. winget install OpenJS.NodeJS.LTS) or run under Bun >= 1.3, then rebuild.\n`,
+  );
+  process.exit(1);
+}
+
+createRoot(renderer).render(
   <App initialRepo={initialRepo} fixedRepo={fixedRepo} refreshSecs={refreshSecs} watch={watch} />,
 );

@@ -1,5 +1,5 @@
 // Sync fallback helpers for picking which repo path to target. Kept free of
-// React/Ink so it can be unit-tested without rendering.
+// React/OpenTUI so it can be unit-tested without rendering.
 //
 // The live source of truth is the Herdr socket CLI (`herdrWorkspace.ts`):
 // sibling-pane cwd, then the workspace worktree root. This module is only the

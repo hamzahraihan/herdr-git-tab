@@ -1,8 +1,8 @@
-import React from "react";
-import { Box, Text } from "ink";
+import React, { useRef } from "react";
 import type { Issue } from "../types.js";
 import { contentHeight, terminalWidth, truncateToWidth } from "../width.js";
 import { SELECTED_BG } from "../theme.js";
+import { isDoubleClick, scrollDelta, type ClickTracker } from "../doubleClick.js";
 
 export function filterIssues(issues: Issue[], query: string): Issue[] {
   const q = query.trim().toLowerCase();
@@ -28,6 +28,8 @@ export default function IssuesPanel({
   ghError,
   noRemote,
   error,
+  onSelect,
+  onDoubleClick,
 }: {
   issues: Issue[];
   selected: number;
@@ -35,56 +37,85 @@ export default function IssuesPanel({
   ghError?: string;
   noRemote?: boolean;
   error?: string;
+  onSelect?: (index: number) => void;
+  onDoubleClick?: (issue: Issue) => void;
 }) {
   if (error) {
     return (
-      <Box flexDirection="column">
-        <Text color="red">{error}</Text>
-      </Box>
+      <box flexDirection="column">
+        <text fg="red">{error}</text>
+      </box>
     );
   }
   if (ghError) {
     return (
-      <Box flexDirection="column">
-        <Text color="yellow">gh unavailable</Text>
-        <Text color="gray">{ghError}</Text>
-      </Box>
+      <box flexDirection="column">
+        <text fg="yellow">gh unavailable</text>
+        <text fg="gray">{ghError}</text>
+      </box>
     );
   }
   const filtered = filterIssues(issues, query);
   if (filtered.length === 0) {
     return (
-      <Box flexDirection="column">
-        <Text color="gray">{noRemote ? "(no GitHub remote)" : "No issues"}</Text>
-      </Box>
+      <box flexDirection="column">
+        <text fg="gray">{noRemote ? "(no GitHub remote)" : "No issues"}</text>
+      </box>
     );
   }
   const safe = Math.min(selected, filtered.length - 1);
   const width = terminalWidth();
   const limit = Math.max(4, Math.floor(contentHeight() / 3));
+  const lastClick = useRef<ClickTracker | null>(null);
+  const handleRowClick = (idx: number, iss: Issue): void => {
+    onSelect?.(idx);
+    const now = Date.now();
+    if (isDoubleClick(lastClick.current, idx, now)) {
+      lastClick.current = null;
+      onDoubleClick?.(iss);
+    } else {
+      lastClick.current = { index: idx, at: now };
+    }
+  };
   return (
-    <Box flexDirection="column">
+    <box
+      flexDirection="column"
+      onMouseScroll={(e) => {
+        const d = scrollDelta(e);
+        if (d !== 0) onSelect?.(Math.max(0, Math.min(selected + d, Math.max(0, filtered.length - 1))));
+      }}
+    >
       {filtered.slice(0, limit).map((iss, idx) => {
         const active = idx === safe;
         const status = statusLabel(iss.state);
         const labels = iss.labels.length > 0 ? iss.labels.map((l) => `[${l}]`).join(" ") : "";
         return (
-          <Box key={iss.number} flexDirection="column" marginBottom={1}>
-            <Box>
-              <Text color={active ? "white" : undefined} backgroundColor={active ? SELECTED_BG : undefined}>
-                {truncateToWidth(`#${iss.number} ${iss.title}`, width)}
-              </Text>
-            </Box>
-            <Box>
-              <Text color={status.color}>[{status.label}]</Text>
-              {labels ? (
-                <Text color="gray"> {truncateToWidth(labels, Math.max(8, width - 24))}</Text>
-              ) : null}
-              <Text color="gray"> · {iss.author}</Text>
-            </Box>
-          </Box>
+          <box
+            key={iss.number}
+            flexDirection="column"
+            marginBottom={1}
+            onMouseDown={() => handleRowClick(idx, iss)}
+            style={{ backgroundColor: active ? SELECTED_BG : undefined }}
+          >
+            <box>
+              <text>
+                <strong fg={active ? "white" : undefined}>
+                  {truncateToWidth(`#${iss.number} ${iss.title}`, width)}
+                </strong>
+              </text>
+            </box>
+            <box>
+              <text>
+                <span fg={status.color}>[{status.label}]</span>
+                {labels ? (
+                  <span fg="gray"> {truncateToWidth(labels, Math.max(8, width - 24))}</span>
+                ) : null}
+                <span fg="gray"> · {iss.author}</span>
+              </text>
+            </box>
+          </box>
         );
       })}
-    </Box>
+    </box>
   );
 }

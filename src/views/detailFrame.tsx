@@ -1,10 +1,9 @@
 import React from "react";
-import { Box, Text } from "ink";
 import { cellWidth, contentHeight, truncateToWidth } from "../width.js";
 
 /** Rows rendered by the detail reader stay line-addressable so j/k and the
  *  mouse wheel can page through long bodies: every `Row` is exactly one
- *  visual row. Boxes are drawn with text glyphs (not nested Ink borders) so
+ *  visual row. Boxes are drawn with text glyphs (not nested TUI borders) so
  *  a scroll window can slice anywhere, including mid-box. */
 
 /** Visible detail rows per frame. Fills the full available terminal height
@@ -156,22 +155,25 @@ export function windowRows(
 
 export function DetailRows({ rows }: { rows: Row[] }) {
   return (
-    <Box flexDirection="column">
+    <box flexDirection="column">
       {rows.map((row, i) => (
-        <Text key={i}>
-          {row.map((s, j) => (
-            <Text
-              key={j}
-              color={s.color}
-              backgroundColor={s.backgroundColor}
-              bold={s.bold}
-              dimColor={s.dimColor}
-            >
-              {s.t}
-            </Text>
-          ))}
-        </Text>
+        <text key={i}>
+          {row.map((s, j) => {
+            if (s.bold) {
+              return (
+                <strong key={j} fg={s.color} bg={s.backgroundColor}>
+                  {s.t}
+                </strong>
+              );
+            }
+            return (
+              <span key={j} fg={s.color} bg={s.backgroundColor}>
+                {s.t}
+              </span>
+            );
+          })}
+        </text>
       ))}
-    </Box>
+    </box>
   );
 }

@@ -424,7 +424,7 @@ async function prCreatePreflight(repo: string): Promise<{ remote: string }> {
 }
 
 /** Terminal path: prompts render, stdin answers. stderr is piped (not
- *  inherited) so gh's reason survives Ink's repaint on failure. */
+ *  inherited) so gh's reason survives the TUI repaint on failure. */
 function runInteractivePRCreate(repo: string): Promise<string> {
   // Executor form: Node ≥ 20 baseline has no Promise.withResolvers (ES2024/Node 22+).
   return new Promise((resolve, reject) => {

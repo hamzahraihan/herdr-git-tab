@@ -1,24 +1,13 @@
-import React from "react";
-import { Box, Text } from "ink";
+import React, { useRef } from "react";
 import type { Branch, Commit, PR } from "../types.js";
 import { filterCommits } from "./HistoryPanel.js";
 import { cellWidth, contentHeight, terminalWidth, truncateToWidth } from "../width.js";
 import { SELECTED_BG } from "../theme.js";
 import { buildBranchHierarchy, type BranchRow } from "../branchHierarchy.js";
+import { isDoubleClick, scrollDelta, type ClickTracker } from "../doubleClick.js";
 
-/** Cap rows so the flow always fits the viewport. */
-
-/**
- * Distinct per-branch lane colors, cycling in display order so adjacent
- * rows never share a color. Matches the reference: teal → orange →
- * pink → green → sky, repeating.
- */
 export const FLOW_COLORS = ["#2dd4bf", "#fb923c", "#f472b6", "#a3e635", "#7dd3fc"];
-
-/** Trunk (main/master) lane color — the lavender `merge` line. */
 export const FLOW_TRUNK_COLOR = "#c4b5fd";
-
-/** Branch glyph shown before each name (reference uses a small branch icon). */
 export const BRANCH_GLYPH = "⑂";
 
 export function flowBranchColor(index: number): string {
@@ -37,7 +26,6 @@ export function flowVisibleRows(
   const filtered = filterCommits(commits, query);
   const currentBranch = branches.find((b) => b.current)?.name ?? null;
   const { rows } = buildBranchHierarchy(filtered, branches, prs, currentBranch);
-  // Branches fully merged into the trunk rejoin it visually (──╯ + tag).
   const trunk = rows.find((r) => r.isMain)?.name ?? null;
   const view = rows.map((row) =>
     row.name !== trunk && trunk !== null && mergedNames.has(row.name)
@@ -48,6 +36,7 @@ export function flowVisibleRows(
   const start = Math.max(0, Math.min(safe - 8, view.length - limit));
   return { view: view.slice(start, start + limit), start, safe };
 }
+
 export default function FlowPanel({
   commits,
   branches,
@@ -55,6 +44,8 @@ export default function FlowPanel({
   selected,
   query,
   mergedNames,
+  onSelect,
+  onDoubleClick,
 }: {
   commits: Commit[];
   branches: Branch[];
@@ -62,13 +53,15 @@ export default function FlowPanel({
   selected: number;
   query: string;
   mergedNames: Set<string>;
+  onSelect?: (index: number) => void;
+  onDoubleClick?: (row: BranchRow) => void;
 }) {
   const filtered = filterCommits(commits, query);
   if (filtered.length === 0) {
     return (
-      <Box flexDirection="column">
-        <Text color="gray">{commits.length === 0 ? "No commits yet" : "No matches"}</Text>
-      </Box>
+      <box flexDirection="column">
+        <text fg="gray">{commits.length === 0 ? "No commits yet" : "No matches"}</text>
+      </box>
     );
   }
   const { view, start, safe } = flowVisibleRows(
@@ -81,32 +74,56 @@ export default function FlowPanel({
   );
   if (view.length === 0) {
     return (
-      <Box flexDirection="column">
-        <Text color="gray">No branches to display</Text>
-      </Box>
+      <box flexDirection="column">
+        <text fg="gray">No branches to display</text>
+      </box>
     );
   }
   const width = terminalWidth();
-  // Color index counts non-trunk rows in display order so the cycle is
-  // stable per render and adjacent rows always differ.
   let colorCursor = 0;
   const colors = new Map<string, string>();
   for (const row of view) {
     if (row.isMain) continue;
     if (!colors.has(row.name)) colors.set(row.name, flowBranchColor(colorCursor++));
   }
+  const lastClick = useRef<ClickTracker | null>(null);
+  const handleRowClick = (idx: number, row: BranchRow): void => {
+    onSelect?.(idx);
+    const now = Date.now();
+    if (isDoubleClick(lastClick.current, idx, now)) {
+      lastClick.current = null;
+      onDoubleClick?.(row);
+    } else {
+      lastClick.current = { index: idx, at: now };
+    }
+  };
   return (
-    <Box flexDirection="column">
-      {view.map((row, i) => (
-        <BranchRowView
-          key={row.name}
-          row={row}
-          active={start + i === safe}
-          width={width}
-          color={row.isMain ? FLOW_TRUNK_COLOR : (colors.get(row.name) ?? FLOW_COLORS[0]!)}
-        />
-      ))}
-    </Box>
+    <box
+      flexDirection="column"
+      onMouseScroll={(e) => {
+        const d = scrollDelta(e);
+        if (d !== 0) onSelect?.(Math.max(0, selected + d));
+      }}
+    >
+      {view.map((row, i) => {
+        const idx = start + i;
+        const active = idx === safe;
+        return (
+          <box
+            key={row.name}
+            onMouseDown={() => handleRowClick(idx, row)}
+            style={{ backgroundColor: active ? SELECTED_BG : undefined }}
+          >
+            <BranchRowView
+              row={row}
+              active={active}
+              width={width}
+              color={row.isMain ? FLOW_TRUNK_COLOR : (colors.get(row.name) ?? FLOW_COLORS[0]!)}
+            />
+          </box>
+        );
+      })}
+    </box>
   );
 }
 
@@ -121,85 +138,84 @@ function BranchRowView({
   width: number;
   color: string;
 }) {
-  const bg = active ? SELECTED_BG : undefined;
   const node = row.merges.length > 0 ? "◆" : "●";
-  // Sync counters always render (zeros included) so columns align like the
-  // reference: `↑0 ↓0`.
   const sync = `↑${row.ahead} ↓${row.behind}`;
   const prTag = row.prNumber !== null ? ` · PR #${row.prNumber}` : "";
   const mergedTag = row.merged && row.mergedInto ? `merged → ${row.mergedInto}` : "";
 
   if (row.isMain) {
-    // Trunk: `⑂main  ●────────────→ merge`. The lane stretches to a fixed
-    // visual length so it reads as the long lavender line in the reference.
     const name = truncateToWidth(`${BRANCH_GLYPH}${row.name}`, 20);
     const keep = cellWidth(name) + cellWidth(sync) + (prTag ? cellWidth(prTag) : 0) + 8;
     const laneLen = Math.max(8, Math.min(28, width - keep));
     return (
-      <Box flexDirection="row">
-        <Text bold color="white" backgroundColor={bg}>
+      <text>
+        <strong fg="white">
           {name}{" "}
-        </Text>
-        <Text bold color={color} backgroundColor={bg}>
+        </strong>
+        <strong fg={color}>
           {node}
           {"─".repeat(laneLen)}→
-        </Text>
-        <Text color="gray" backgroundColor={bg}>
+        </strong>
+        <span fg="gray">
           {"  "}
           {mergedTag || "merge"}
           {prTag ? (
-            <Text>
+            <span>
               {"  "}
-              <Text bold color="yellow" backgroundColor={bg}>
+              <strong fg="yellow">
                 PR #{row.prNumber}
-              </Text>
-            </Text>
+              </strong>
+            </span>
           ) : null}
-        </Text>
-      </Box>
+        </span>
+      </text>
     );
   }
 
-  // Child: `└─⑂name  ●───  ↑0 ↓0`. Single node per branch (not per commit)
-  // like the reference; the dot + short lane carry the branch color.
   const name = truncateToWidth(`${BRANCH_GLYPH}${row.name}`, 16);
   const lane = row.merged ? "──╯" : "───";
   return (
-    <Box flexDirection="row">
-      <Text color="gray" backgroundColor={bg}>
+    <text>
+      <span fg="gray">
         {"└─"}
-      </Text>
-      <Text bold={active} color={color} backgroundColor={bg}>
-        {name}{" "}
-      </Text>
-      <Text bold color={color} backgroundColor={bg}>
+      </span>
+      {active ? (
+        <strong fg={color}>
+          {name}{" "}
+        </strong>
+      ) : (
+        <span fg={color}>
+          {name}{" "}
+        </span>
+      )}
+      <strong fg={color}>
         {node}
-      </Text>
-      <Text color={color} backgroundColor={bg}>
+      </strong>
+      <span fg={color}>
         {lane}
         {"  "}
-      </Text>
-      <Text color="gray" backgroundColor={bg}>
+      </span>
+      <span fg="gray">
         {sync}
-      </Text>
+      </span>
       {prTag ? (
-        <Text backgroundColor={bg}>
-          <Text color="gray" backgroundColor={bg}>
+        <span>
+          <span fg="gray">
             {" · "}
-          </Text>
-          <Text bold color="yellow" backgroundColor={bg}>
+          </span>
+          <strong fg="yellow">
             PR #{row.prNumber}
-          </Text>
-        </Text>
+          </strong>
+        </span>
       ) : null}
       {mergedTag ? (
-        <Text backgroundColor={bg}>
-          <Text color="gray" backgroundColor={bg}>
+        <span>
+          <span fg="gray">
             {"  "}
             {mergedTag}
-          </Text>
-        </Text>
+          </span>
+        </span>
       ) : null}
-    </Box>
+    </text>
   );
 }

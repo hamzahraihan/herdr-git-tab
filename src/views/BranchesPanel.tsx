@@ -1,9 +1,9 @@
-import React from "react";
-import { Box, Text } from "ink";
+import React, { useRef } from "react";
 import type { Branch } from "../types.js";
 import { relativeTime } from "../time.js";
 import { cellWidth, contentHeight, terminalWidth, truncateToWidth } from "../width.js";
 import { SELECTED_BG } from "../theme.js";
+import { isDoubleClick, scrollDelta, type ClickTracker } from "../doubleClick.js";
 
 export function filterBranches(branches: Branch[], filter: string): Branch[] {
   const q = filter.trim().toLowerCase();
@@ -15,44 +15,71 @@ export default function BranchesPanel({
   selected,
   filter,
   error,
+  onSelect,
+  onDoubleClick,
 }: {
   branches: Branch[];
   selected: number;
   filter: string;
   error?: string;
+  onSelect?: (index: number) => void;
+  onDoubleClick?: (branch: Branch) => void;
 }) {
   if (error) {
     return (
-      <Box flexDirection="column">
-        <Text color="red">{error}</Text>
-      </Box>
+      <box flexDirection="column">
+        <text fg="red">{error}</text>
+      </box>
     );
   }
   const filtered = filterBranches(branches, filter);
   if (filtered.length === 0) {
     return (
-      <Box flexDirection="column">
-        <Text color="gray">{branches.length === 0 ? "No branches" : "No matches"}</Text>
-      </Box>
+      <box flexDirection="column">
+        <text fg="gray">{branches.length === 0 ? "No branches" : "No matches"}</text>
+      </box>
     );
   }
   const safe = Math.min(selected, filtered.length - 1);
-  // Content box already spends paddingX=1 on each side, so rows budget
-  // `width - 2` cells to stay exactly one visual row (see width.ts).
   const inner = Math.max(20, terminalWidth() - 2);
   const limit = contentHeight();
+  const lastClick = useRef<ClickTracker | null>(null);
+  const handleRowClick = (i: number, b: Branch): void => {
+    onSelect?.(i);
+    const now = Date.now();
+    if (isDoubleClick(lastClick.current, i, now)) {
+      lastClick.current = null;
+      onDoubleClick?.(b);
+    } else {
+      lastClick.current = { index: i, at: now };
+    }
+  };
   return (
-    <Box flexDirection="column">
-      {filtered.slice(0, limit).map((b, i) => (
-        <BranchRow key={b.name} branch={b} active={i === safe} inner={inner} />
-      ))}
-    </Box>
+    <box
+      flexDirection="column"
+      onMouseScroll={(e) => {
+        const d = scrollDelta(e);
+        if (d !== 0) onSelect?.(Math.max(0, Math.min(selected + d, Math.max(0, filtered.length - 1))));
+      }}
+    >
+      {filtered.slice(0, limit).map((b, i) => {
+        const active = i === safe;
+        return (
+          <box
+            key={b.name}
+            onMouseDown={() => handleRowClick(i, b)}
+            style={{ backgroundColor: active ? SELECTED_BG : undefined }}
+          >
+            <BranchRow branch={b} active={active} inner={inner} />
+          </box>
+        );
+      })}
+    </box>
   );
 }
 
 function BranchRow({ branch: b, active, inner }: { branch: Branch; active: boolean; inner: number }) {
   const right = relativeTime(b.lastCommitDate ?? "");
-  // Sync badges always render (zeros dimmed) so columns align like the reference.
   const syncText = `↑${b.ahead} ↓${b.behind}`;
   const goneText = b.upstream === "gone" ? " [gone]" : "";
   const head = `• ${b.name} ${syncText}  `;
@@ -64,26 +91,32 @@ function BranchRow({ branch: b, active, inner }: { branch: Branch; active: boole
   const left = `${head}${msg}${goneText}`;
   const gap = right ? Math.max(2, inner - cellWidth(left) - cellWidth(right)) : 0;
   return (
-    <Text backgroundColor={active ? SELECTED_BG : undefined}>
-      <Text color={b.current ? "yellow" : "gray"} dimColor={!b.current}>
+    <text>
+      <span fg={b.current ? "yellow" : "gray"}>
         {"• "}
-      </Text>
-      <Text bold={b.current || active} color={b.current ? "green" : "white"}>
-        {b.name}{" "}
-      </Text>
-      <Text color="gray" dimColor>
+      </span>
+      {b.current || active ? (
+        <strong fg={b.current ? "green" : "white"}>
+          {b.name}{" "}
+        </strong>
+      ) : (
+        <span fg="white">
+          {b.name}{" "}
+        </span>
+      )}
+      <span fg="gray">
         {syncText}{"  "}
-      </Text>
-      <Text color="white">{msg}</Text>
-      {goneText ? <Text color="red">{goneText}</Text> : null}
+      </span>
+      <span fg="white">{msg}</span>
+      {goneText ? <span fg="red">{goneText}</span> : null}
       {right ? (
         <React.Fragment>
-          <Text>{" ".repeat(gap)}</Text>
-          <Text color="gray" dimColor>
+          <span>{" ".repeat(gap)}</span>
+          <span fg="gray">
             {right}
-          </Text>
+          </span>
         </React.Fragment>
       ) : null}
-    </Text>
+    </text>
   );
 }
