@@ -387,6 +387,20 @@ export async function getFileDiff(repo: string, path: string, limit = 100): Prom
   }
 }
 
+/** Commit detail for history/flow double-click: `git show` capped for the
+ *  overlay. Returns `$ git show <hash>` header plus show output. */
+export async function getCommitDetail(repo: string, hash: string, limit = 200): Promise<string> {
+  try {
+    const { stdout } = await runGit(repo, ["show", "--stat", "-p", "--format=fuller", hash, "--"]);
+    const out = stdout.trim();
+    if (!out) return `(no detail for ${hash})`;
+    const lines = out.split("\n").slice(0, limit);
+    return [`$ git show ${hash}`, ...lines].join("\n");
+  } catch (e) {
+    throw new Error(errText(e).trim().split("\n")[0] ?? `git show ${hash} failed`);
+  }
+}
+
 /** Ordered status paths for `d` + status selection: staged, unstaged, untracked. */
 export function statusPaths(status: RepoStatus): { path: string; kind: string }[] {
   const seen = new Set<string>();

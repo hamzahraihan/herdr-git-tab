@@ -1,12 +1,11 @@
 // Terminal width helpers.
 //
 // Every rendered row is truncated to the live terminal width (the same
-// `stdout.columns || 80` fallback Ink measures with). A single wrapped row
-// desyncs Ink's erase-by-cursor-up bookkeeping, after which old frames stop
-// being cleared: stacked tab strips and an apparently "frozen" tab. Keeping
+// `stdout.columns || 80` fallback). A single wrapped row used to desync
+// frame clearing: stacked tab strips and an apparently "frozen" tab. Keeping
 // each logical row to exactly one visual row keeps every frame erasable.
 
-/** Live terminal width, with Ink's own fallback when unknown. */
+/** Live terminal width, with an 80-column fallback when unknown. */
 export function terminalWidth(): number {
   const cols = process.stdout.columns;
   return typeof cols === "number" && cols > 0 ? cols : 80;

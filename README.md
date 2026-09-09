@@ -4,7 +4,8 @@ Herdr tab plugin: keyboard-driven git + GitHub TUI showing six panes in one view
 
 ## Install
 
-Requires Herdr ≥ 0.8, Node ≥ 20, and `pnpm`.
+Requires Herdr ≥ 0.8, `pnpm`, and either Bun ≥ 1.3 (the tab runs via
+`bun dist/bin/launch-tab.js`) or Node ≥ 26.4 (OpenTUI native FFI).
 
 ```sh
 herdr plugin install hamzahraihan/herdr-git-tab

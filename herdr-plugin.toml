@@ -25,8 +25,10 @@ command = ["node", "dist/bin/open-tab.js"]
 # Tab command the user can launch from a workspace. Runs through a wrapper
 # that binds to the workspace's live shell cwd before exec'ing the TUI (the
 # tab keeps following it automatically from there).
+# Uses `bun` because OpenTUI requires Node >= 26.4 or Bun >= 1.3;
+# plain `node` on older runtimes fails with "native FFI is not available".
 [[panes]]
 id = "git-tab"
 title = "Git"
 placement = "tab"
-command = ["node", "dist/bin/launch-tab.js"]
+command = ["bun", "dist/bin/launch-tab.js"]

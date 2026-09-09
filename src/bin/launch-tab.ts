@@ -31,7 +31,11 @@ if (target && target.length > 0 && existsSync(target)) {
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, "..", "cli.js");
 try {
-  const out = execFileSync("node", [cli, ...process.argv.slice(2)], {
+  // Reuse the current runtime (node or bun) so the TUI renderer keeps
+  // working: OpenTUI needs Node >= 26.4 or Bun >= 1.3, and a hardcoded
+  // `node` would drop back to an unsupported Node when Herdr launches us
+  // via `bun dist/bin/launch-tab.js`.
+  const out = execFileSync(process.execPath, [cli, ...process.argv.slice(2)], {
     cwd: process.cwd(),
     stdio: "inherit",
     env: process.env,
