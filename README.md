@@ -1,6 +1,6 @@
 # herdr-git-tab
 
-Herdr tab plugin: keyboard-driven git + GitHub TUI showing six panes in one view.
+Herdr tab plugin: GitHub TUI showing six panes in one view.
 
 ## Install
 
