@@ -48,6 +48,11 @@ describe("needsInstall", () => {
     expect(needsInstall(keybindingBlock(DEFAULT_KEY))).toBe(false);
     expect(needsInstall(`command = "${ACTION_ID}"`)).toBe(false);
   });
+
+  it("treats commented-out bindings as needing install", () => {
+    expect(needsInstall(`# command = "${ACTION_ID}"`)).toBe(true);
+    expect(needsInstall(`# [[keys.command]]\n# command = "${ACTION_ID}"`)).toBe(true);
+  });
 });
 
 describe("installBlock", () => {
@@ -62,6 +67,19 @@ describe("installBlock", () => {
 
   it("is idempotent through needsInstall", () => {
     expect(needsInstall(installBlock("", DEFAULT_KEY))).toBe(false);
+  });
+
+  it("replaces commented-out template blocks cleanly", () => {
+    const input =
+      '# herdr-git-tab: open the Git tab in the active workspace.\n' +
+      '# [[keys.command]]\n' +
+      '# key = "prefix+."\n' +
+      '# type = "plugin_action"\n' +
+      `# command = "${ACTION_ID}"\n` +
+      '# description = "Open Git Tab"\n';
+    const out = installBlock(input, DEFAULT_KEY);
+    expect(out).toBe(`${keybindingBlock(DEFAULT_KEY)}\n`);
+    expect(out).not.toContain("# command =");
   });
 });
 
@@ -93,5 +111,17 @@ describe("ensureKeybinding", () => {
     const content = readFileSync(file, "utf8");
     expect(content).toContain('theme = "dark"');
     expect(content).toContain('key = "prefix+g"');
+  });
+
+  it("replaces a commented-out block with the active keybinding", () => {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-keys-"));
+    dirs.push(dir);
+    const file = join(dir, "config.toml");
+    writeFileSync(file, `# [[keys.command]]\n# command = "${ACTION_ID}"\n`);
+    const res = ensureKeybinding(DEFAULT_KEY, file);
+    expect(res).toEqual({ path: file, changed: true });
+    const content = readFileSync(file, "utf8");
+    expect(content).toContain(`command = "${ACTION_ID}"`);
+    expect(content).not.toContain(`# command = "${ACTION_ID}"`);
   });
 });
