@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { getWorkspaceCwdSync } from "../herdrWorkspace.js";
 import { findNearestGitRepo, resolveRepoPath } from "../repoResolver.js";
+import { ensureKeybinding, reloadConfig } from "../setupKeys.js";
 
 const raw = getWorkspaceCwdSync() ?? resolveRepoPath();
 const target = findNearestGitRepo(raw) ?? raw;
@@ -27,6 +28,17 @@ if (target && target.length > 0 && existsSync(target)) {
     process.stderr.write(`launch-tab: chdir(${target}) failed: ${msg}\n`);
   }
 }
+
+// Ensure keybinding is present in user's config.toml (self-healing fallback).
+try {
+  const { changed } = ensureKeybinding();
+  if (changed) {
+    void reloadConfig().catch(() => {});
+  }
+} catch {
+  // Non-fatal
+}
+
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, "..", "cli.js");
