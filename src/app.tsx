@@ -2,10 +2,11 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { KeyEvent } from "@opentui/core";
 import { scrollDelta } from "./doubleClick.js";
-import { busyLabel } from "./busyStatus.js";
+import { busyLabel, SPINNER_FRAMES } from "./busyStatus.js";
 import type {
   Branch,
   Commit,
+  CommitDayEntry,
   Issue,
   IssueDetail,
   PR,
@@ -18,8 +19,10 @@ import {
   checkoutBranch,
   getBranchDiff,
   getBranches,
-  getFileDiff,
   getCommitDetail,
+  getCommitHeatmap,
+  getCurrentUser,
+  getFileDiff,
   getHistory,
   getMergedBranches,
   getRepoStats,
@@ -41,7 +44,7 @@ import {
 } from "./github.js";
 import { defaultShellCwdFile, findNearestGitRepo, readShellCwdFile } from "./repoResolver.js";
 import { getWorkspaceCwd } from "./herdrWorkspace.js";
-import { cellWidth, terminalWidth, truncateToWidth } from "./width.js";
+import { cellWidth, terminalHeight, terminalWidth, truncateToWidth } from "./width.js";
 import { KEYBAR_BG } from "./theme.js";
 import HeaderBar from "./views/TabBar.js";
 import HistoryPanel, { historyVisibleRows } from "./views/HistoryPanel.js";
@@ -54,6 +57,7 @@ import PRDetailPanel from "./views/PRDetail.js";
 import IssueDetailPanel from "./views/IssueDetail.js";
 import DiffView from "./views/DiffView.js";
 
+import HeatmapPanel from "./views/HeatmapPanel.js";
 // Poll interval for following the workspace cwd. Kept short so `cd` in a
 // sibling pane repoints the tab within seconds; data refresh stays on the
 // slower `refreshSecs` cadence to avoid hammering git/gh.
@@ -96,6 +100,10 @@ export default function App({
   const [selPR, setSelPR] = useState(0);
   const [selIssue, setSelIssue] = useState(0);
   const [selStatus, setSelStatus] = useState(0);
+  const [heatmapEntries, setHeatmapEntries] = useState<CommitDayEntry[]>([]);
+  const [selHeatmapW, setSelHeatmapW] = useState<number | undefined>(undefined);
+  const [selHeatmapD, setSelHeatmapD] = useState<number | undefined>(undefined);
+  const [currentUser, setCurrentUser] = useState<string>("");
   // `m` toggles list scope: this repo vs everything involving you.
   const [scope, setScope] = useState<Scope>("repo");
   // Detail reader: PR opens description + discussion with an info rail;
@@ -114,6 +122,14 @@ export default function App({
   // `busy` drives the footer line; `checkingOut` only gates re-entry while one runs.
   const [checkingOut, setCheckingOut] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [, setResizeTick] = useState(0);
+  useEffect(() => {
+    const onResize = () => setResizeTick((t) => t + 1);
+    process.stdout.on("resize", onResize);
+    return () => {
+      process.stdout.off("resize", onResize);
+    };
+  }, []);
   // First `[load]`-effect run is the initial mount (silent, first-paint
   // gate covers it); later repo/scope changes reload as manual so the
   // pane takes over instead of showing the old repo's content.
@@ -145,6 +161,17 @@ export default function App({
     },
     [fixedRepo],
   );
+  const activePaneRef = useRef(activePane);
+  activePaneRef.current = activePane;
+  const heatmapEntriesRef = useRef(heatmapEntries);
+  heatmapEntriesRef.current = heatmapEntries;
+  const repoStatsRef = useRef(repoStats);
+  repoStatsRef.current = repoStats;
+  const currentUserRef = useRef(currentUser);
+  currentUserRef.current = currentUser;
+  const remoteCheckedRepoRef = useRef<string | null>(null);
+  const userCheckedRepoRef = useRef<string | null>(null);
+
 
   const load = useCallback(async (opts?: { manual?: boolean }) => {
     // Re-resolve first so the closure sees the freshest cwd before any work.
@@ -155,16 +182,35 @@ export default function App({
       // path. Bail to avoid racing two loads against the same state batch.
       return;
     }
-    if (opts?.manual) setBusy(busyLabel({ kind: "refresh" }));
+    const isManual = Boolean(opts?.manual);
+    if (isManual) setBusy(busyLabel({ kind: "refresh" }));
     setLoading(true);
-    const [h, b, s, p, i, r, st] = await Promise.allSettled([
+
+    const shouldFetchHeatmap = isManual || activePaneRef.current === 7;
+    const shouldFetchStats = isManual || activePaneRef.current === 6 || repoStatsRef.current === null;
+    const shouldFetchRemote = isManual || remoteCheckedRepoRef.current !== target;
+    const shouldFetchUser = isManual || userCheckedRepoRef.current !== target;
+
+    const [h, b, s, p, i, r, st, hm, cu] = await Promise.allSettled([
       getHistory(target, 100),
       getBranches(target),
       getStatus(target),
       getPRs(target, scope),
       getIssues(target, scope),
-      hasGithubRemote(target),
-      getRepoStats(target),
+      shouldFetchRemote
+        ? hasGithubRemote(target).then((val) => {
+            remoteCheckedRepoRef.current = target;
+            return val;
+          })
+        : Promise.resolve(!noRemote),
+      shouldFetchStats ? getRepoStats(target) : Promise.resolve(repoStatsRef.current ?? null),
+      shouldFetchHeatmap ? getCommitHeatmap(target) : Promise.resolve(heatmapEntriesRef.current),
+      shouldFetchUser
+        ? getCurrentUser(target).then((val) => {
+            userCheckedRepoRef.current = target;
+            return val;
+          })
+        : Promise.resolve(currentUserRef.current),
     ]);
     const errs: Record<string, string> = {};
     if (s.status === "rejected" && paneError(s.reason) === "NOT_A_GIT_REPO") {
@@ -191,6 +237,9 @@ export default function App({
     if (r.status === "fulfilled") setNoRemote(!r.value);
     if (st.status === "fulfilled") setRepoStats(st.value);
     else setRepoStats(null);
+    if (hm.status === "fulfilled") setHeatmapEntries(hm.value);
+    else errs.heatmap = paneError(hm.reason);
+    if (cu.status === "fulfilled") setCurrentUser(cu.value);
     // Merged-branch marking is best-effort: derive the trunk from the fresh
     // data, ask git which branches it contains, and let the flow panel mark
     // them. Any failure leaves the previous set (usually empty) in place.
@@ -223,6 +272,12 @@ export default function App({
     setSelPR(0);
     setSelIssue(0);
     setSelStatus(0);
+    setSelHeatmapW(undefined);
+    setSelHeatmapD(undefined);
+    remoteCheckedRepoRef.current = null;
+    userCheckedRepoRef.current = null;
+    setHeatmapEntries([]);
+    setRepoStats(null);
     setQuery("");
     setBranchFilter("");
     setNotice("");
@@ -264,6 +319,22 @@ export default function App({
     }, REPO_POLL_SECS * 1000);
     return () => clearInterval(t);
   }, [repo, resolveLiveRepo, watch, fixedRepo]);
+
+  // Lazy-load pane-specific data on demand when switching to pane 6 or 7
+  useEffect(() => {
+    if (activePane === 7 && heatmapEntries.length === 0) {
+      getCommitHeatmap(repo)
+        .then((val) => setHeatmapEntries(val))
+        .catch((e: unknown) => {
+          setPaneErrors((prev) => ({ ...prev, heatmap: paneError(e) }));
+        });
+    }
+    if (activePane === 6 && !repoStats) {
+      getRepoStats(repo)
+        .then((val) => setRepoStats(val))
+        .catch(() => setRepoStats(null));
+    }
+  }, [activePane, heatmapEntries.length, repo, repoStats]);
   const closePRDetail = (): void => {
     setPrDetail(null);
     setPrDetailError("");
@@ -387,7 +458,7 @@ export default function App({
         setDiffScroll(0);
         return;
       }
-      if (input >= "1" && input <= "6") {
+      if (input >= "1" && input <= "7") {
         setActivePane(Number(input));
         setDiff(null);
         setDiffScroll(0);
@@ -415,7 +486,7 @@ export default function App({
         closePRDetail();
         return;
       }
-      if (input >= "1" && input <= "6") {
+      if (input >= "1" && input <= "7") {
         setActivePane(Number(input));
         closePRDetail();
         return;
@@ -482,7 +553,7 @@ export default function App({
         closeIssueDetail();
         return;
       }
-      if (input >= "1" && input <= "6") {
+      if (input >= "1" && input <= "7") {
         setActivePane(Number(input));
         closeIssueDetail();
         return;
@@ -514,7 +585,7 @@ export default function App({
       }
       return;
     }
-    if (input >= "1" && input <= "6") {
+    if (input >= "1" && input <= "7") {
       setActivePane(Number(input));
       return;
     }
@@ -544,6 +615,8 @@ export default function App({
       else if (activePane === 6) {
         const total = status ? statusPaths(status).length : 0;
         setSelStatus((v) => Math.min(v + 1, Math.max(0, total - 1)));
+      } else if (activePane === 7) {
+        setSelHeatmapD((d) => Math.min(6, (d ?? 6) + 1));
       }
       return;
     }
@@ -553,6 +626,15 @@ export default function App({
       else if (activePane === 4) setSelPR((v) => Math.max(0, v - 1));
       else if (activePane === 5) setSelIssue((v) => Math.max(0, v - 1));
       else if (activePane === 6) setSelStatus((v) => Math.max(0, v - 1));
+      else if (activePane === 7) setSelHeatmapD((d) => Math.max(0, (d ?? 6) - 1));
+      return;
+    }
+    if (input === "h" || key.name === "left") {
+      if (activePane === 7) setSelHeatmapW((w) => Math.max(0, (w ?? 51) - 1));
+      return;
+    }
+    if (input === "l" || key.name === "right") {
+      if (activePane === 7) setSelHeatmapW((w) => (w ?? 51) + 1);
       return;
     }
     if (input === "d") {
@@ -657,6 +739,7 @@ export default function App({
   });
 
   const width = terminalWidth();
+  const height = terminalHeight();
   if (fatal) {
     return (
       <box flexDirection="column" padding={1}>
@@ -670,13 +753,13 @@ export default function App({
     );
   }
 
+  const scopeLabel = scope === "mine" ? "mine" : "repo";
   const showingPRDetail =
     activePane === 4 && (prDetail !== null || prDetailLoading || prDetailError !== "");
   const showingIssueDetail =
     activePane === 5 &&
     (issueDetail !== null || issueDetailLoading || issueDetailError !== "");
-  const scopeLabel = scope === "mine" ? "mine" : "repo";
-  let footerHint = `1-6 focus · / filter · m scope:${scopeLabel} · r refresh · q quit · ${repo}${fixedRepo ? "" : " (auto)"}`;
+  let footerHint = `1-7 focus · / filter · m scope:${scopeLabel} · r refresh · q quit · ${repo}${fixedRepo ? "" : " (auto)"}`;
   if (diff) footerHint = `j/k scroll · q/Esc back · ${repo}`;
   else if (showingPRDetail)
     footerHint = `j/k scroll · c/Enter checkout · a approve · o open · r refresh · q/Esc back · ${repo}`;
@@ -688,18 +771,27 @@ export default function App({
     footerHint = `Enter open · c create · m scope:${scopeLabel} · / filter · r refresh · q quit · ${repo}${fixedRepo ? "" : " (auto)"}`;
   else if (activePane === 6)
     footerHint = `j/k select · d diff · m scope:${scopeLabel} · r refresh · q quit · ${repo}${fixedRepo ? "" : " (auto)"}`;
+  else if (activePane === 7)
+    footerHint = `←/→ week · ↑/↓ day · / filter · m scope:${scopeLabel} · r refresh · q quit · ${repo}${fixedRepo ? "" : " (auto)"}`;
 
   return (
-    <box flexDirection="column" width="100%">
-      <box paddingX={1}>
-        <HeaderBar
-          active={activePane}
-          repo={repoName(repo)}
-          current={branches.find((b) => b.current)?.name ?? null}
-          upstream={branches.find((b) => b.current)?.upstream}
-          changes={status ? statusPaths(status).length : 0}
-          onSelectTab={setActivePane}
-        />
+    <box
+      flexDirection="column"
+      width={width}
+      height={height}
+      justifyContent="space-between"
+    >
+      <box flexDirection="column" flexShrink={0}>
+        <box paddingX={1}>
+          <HeaderBar
+            active={activePane}
+            repo={repoName(repo)}
+            current={branches.find((b) => b.current)?.name ?? null}
+            upstream={branches.find((b) => b.current)?.upstream}
+            changes={status ? statusPaths(status).length : 0}
+            onSelectTab={setActivePane}
+          />
+        </box>
       </box>
       <box flexDirection="column" flexGrow={1} paddingX={1} paddingY={1}>
         {busy ? (
@@ -848,44 +940,69 @@ export default function App({
               }}
             />
           )}
+          {!diff && activePane === 7 && (
+            <HeatmapPanel
+              entries={heatmapEntries}
+              commits={commits}
+              query={query || (scope === "mine" ? currentUser : "")}
+              error={paneErrors.heatmap}
+              selectedWeek={selHeatmapW}
+              selectedDay={selHeatmapD}
+              onSelectCell={(w, d) => {
+                setSelHeatmapW(w);
+                setSelHeatmapD(d);
+              }}
+            />
+          )}
           </>
         )}
       </box>
-      {filtering ? (
-        <box paddingX={1}>
-          <text fg="cyan">
-            /{truncateToWidth(activePane === 3 ? branchFilter : query, Math.max(8, width - 16))}
-          </text>
-          <text fg="gray"> (esc/ent done)</text>
+      <box flexDirection="column" flexShrink={0}>
+        {filtering ? (
+          <box paddingX={1}>
+            <text fg="cyan">
+              /{truncateToWidth(activePane === 3 ? branchFilter : query, Math.max(8, width - 16))}
+            </text>
+            <text fg="gray"> (esc/ent done)</text>
+          </box>
+        ) : null}
+        {notice ? (
+          <box paddingX={1}>
+            <text fg="green">{truncateToWidth(notice, width)}</text>
+          </box>
+        ) : null}
+        {error ? (
+          <box paddingX={1}>
+            <text fg="red">{truncateToWidth(error, width)}</text>
+          </box>
+        ) : null}
+        {(prDetailError && prDetail) || (issueDetailError && issueDetail) ? (
+          <box paddingX={1}>
+            <text fg="red">
+              {truncateToWidth((prDetailError || issueDetailError) as string, width)}
+            </text>
+          </box>
+        ) : null}
+        <box>
+          <KeyBar text={footerHint} width={width} />
         </box>
-      ) : null}
-      {notice ? (
-        <box paddingX={1}>
-          <text fg="green">{truncateToWidth(notice, width)}</text>
-        </box>
-      ) : null}
-      {error ? (
-        <box paddingX={1}>
-          <text fg="red">{truncateToWidth(error, width)}</text>
-        </box>
-      ) : null}
-      {(prDetailError && prDetail) || (issueDetailError && issueDetail) ? (
-        <box paddingX={1}>
-          <text fg="red">
-            {truncateToWidth((prDetailError || issueDetailError) as string, width)}
-          </text>
-        </box>
-      ) : null}
-      <box>
-        <KeyBar text={footerHint} width={width} />
       </box>
     </box>
   );
 }
 function LoadingView({ label, width }: { label: string; width: number }) {
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
+    }, 80);
+    return () => clearInterval(timer);
+  }, []);
+
   return (
     <box padding={1}>
-      <text fg="cyan">● </text>
+      <text fg="cyan">{`${SPINNER_FRAMES[frame]} `}</text>
       <text>{truncateToWidth(label, Math.max(8, width - 4))}</text>
     </box>
   );
