@@ -120,3 +120,32 @@ export type RepoStats = {
   /** Authors by commit count, descending. */
   authors: AuthorStat[];
 };
+
+export type CommitDayEntry = {
+  date: string; // "YYYY-MM-DD"
+  author: string;
+};
+
+export type HeatmapCell = {
+  date: string; // "YYYY-MM-DD"
+  count: number;
+  level: number; // 0..4
+  inRange: boolean; // false for future or out-of-bounds days
+};
+
+export type HeatmapWeek = {
+  days: HeatmapCell[]; // 7 days: 0 = Sun .. 6 = Sat
+};
+
+export type HeatmapData = {
+  weeks: HeatmapWeek[];
+  monthLabels: string;
+  totalCommits: number;
+  activeDays: number;
+  currentStreak: number;
+  longestStreak: number;
+  maxDayCount: number;
+  peakDate: string | null;
+  startDate: string;
+  endDate: string;
+};
