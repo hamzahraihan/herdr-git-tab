@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useMemo, useRef } from "react";
 import type { Commit } from "../types.js";
 import { relativeTime } from "../time.js";
 import { SELECTED_BG } from "../theme.js";
@@ -41,7 +41,7 @@ export default function HistoryPanel({
   onSelect?: (index: number) => void;
   onDoubleClick?: (commit: Commit) => void;
 }) {
-  const filtered = filterCommits(commits, query);
+  const filtered = useMemo(() => filterCommits(commits, query), [commits, query]);
   if (filtered.length === 0) {
     return (
       <box flexDirection="column">
@@ -49,7 +49,10 @@ export default function HistoryPanel({
       </box>
     );
   }
-  const { rows, start, safe } = historyVisibleRows(commits, query, selected);
+  const limit = contentHeight();
+  const safe = Math.min(selected, filtered.length - 1);
+  const start = Math.max(0, Math.min(safe - 8, filtered.length - limit));
+  const rows = filtered.slice(start, start + limit);
   const inner = Math.max(20, terminalWidth() - 2);
   const lastClick = useRef<ClickTracker | null>(null);
   const handleRowClick = (idx: number): void => {
@@ -57,7 +60,7 @@ export default function HistoryPanel({
     const now = Date.now();
     if (isDoubleClick(lastClick.current, idx, now)) {
       lastClick.current = null;
-      const item = filterCommits(commits, query)[idx];
+      const item = filtered[idx];
       if (item) onDoubleClick?.(item);
     } else {
       lastClick.current = { index: idx, at: now };
