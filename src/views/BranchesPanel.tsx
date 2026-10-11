@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useMemo, useRef } from "react";
 import type { Branch } from "../types.js";
 import { relativeTime } from "../time.js";
 import { cellWidth, contentHeight, terminalWidth, truncateToWidth } from "../width.js";
@@ -32,7 +32,7 @@ export default function BranchesPanel({
       </box>
     );
   }
-  const filtered = filterBranches(branches, filter);
+  const filtered = useMemo(() => filterBranches(branches, filter), [branches, filter]);
   if (filtered.length === 0) {
     return (
       <box flexDirection="column">
