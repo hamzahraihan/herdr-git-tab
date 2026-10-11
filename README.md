@@ -1,6 +1,6 @@
 # herdr-git-tab
 
-Herdr tab plugin: GitHub TUI showing six panes in one view.
+Herdr tab plugin: GitHub TUI showing seven panes in one view.
 
 ## Install
 
@@ -67,8 +67,8 @@ When stdout is not a TTY (Herdr non-interactive capture), the CLI prints
 
 ## TUI
 
-Six panes in one view: 1 history, 2 graph, 3 branches, 4 PRs, 5 issues,
-6 status. See [Keymap](#keymap) for every binding.
+Seven panes in one view: 1 history, 2 graph, 3 branches, 4 PRs, 5 issues,
+6 status, 7 heatmap. See [Keymap](#keymap) for every binding.
 
 ## Keymap
 
@@ -76,8 +76,8 @@ Global (list focused, no overlay open):
 
 | Key | Action |
 | --- | --- |
-| `1`–`6` | Focus pane (1 history, 2 graph, 3 branches, 4 PRs, 5 issues, 6 status) |
-| `j` / `k` / `↑` / `↓` | Move selection (history, branches, PRs, issues, status files) |
+| `1`–`7` | Focus pane (1 history, 2 graph, 3 branches, 4 PRs, 5 issues, 6 status, 7 heatmap) |
+| `j` / `k` / `↑` / `↓` | Move selection (history, branches, PRs, issues, status files, heatmap days) |
 | Click | Select tab-strip item or row; wheel scrolls selection (needs `ui.mouse_capture = false` — Herdr captures mouse input by default) |
 | `/` | Filter commits / PRs / issues by substring (`Esc`/`Enter` done; `Backspace` deletes) |
 | `m` | Toggle scope: this repo ↔ my work (`--search "involves:@me"`) |
@@ -127,6 +127,15 @@ Status (pane 6) + diff overlay:
 | `j` / `k` / click / wheel | Select a changed file (staged → unstaged → untracked order) |
 | `d` | Diff overlay: `git diff HEAD -- <file>` (`(untracked <path>: no diff)` for new files; `j`/`k` scroll, `q`/`Esc` back) |
 
+
+Heatmap (pane 7):
+
+| Key | Action |
+| --- | --- |
+| `h` / `l` / `←` / `→` / wheel | Navigate weeks in the calendar grid |
+| `j` / `k` / `↑` / `↓` | Navigate days of the week |
+| `/` | Filter heatmap commits by author or date query |
+| `m` | Scope toggle: this repo ↔ my commits |
 ## Pane behavior
 
 - **History / Graph**: `git log --graph --pretty=format:... --all -n 100`. Empty repo
@@ -151,6 +160,11 @@ Status (pane 6) + diff overlay:
 - **Issues**: same reader shape for description + recent comments; rail shows
   state, labels, assignees, and comment count.
 
+- **Heatmap**: GitHub-style calendar contribution grid (days × weeks) derived
+  from `git log --date=short --pretty=format:%ad%x1f%an --all`. Displays
+  commit frequency across 12 to 52 weeks (responsive to terminal width) with
+  activity shading levels, streak metrics (current streak, longest streak, peak
+  day), and a detailed commit inspector for the selected date.
 ## Error handling
 
 - Not a git repository → fatal screen with the path and exit hint; never blank.
