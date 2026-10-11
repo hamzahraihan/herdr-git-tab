@@ -1,6 +1,16 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { AuthorStat, Branch, Commit, RepoStats, RepoStatus } from "./types.js";
+import type {
+  AuthorStat,
+  Branch,
+  Commit,
+  CommitDayEntry,
+  HeatmapCell,
+  HeatmapData,
+  HeatmapWeek,
+  RepoStats,
+  RepoStatus,
+} from "./types.js";
 
 const execFileAsync = promisify(execFile);
 const TIMEOUT = 15000;
@@ -424,4 +434,259 @@ export function statusPaths(status: RepoStatus): { path: string; kind: string }[
     }
   }
   return out;
+}
+
+/** Split one `git log --date=short --pretty=format:%ad%x1f%an` line. */
+export function parseHeatmapLine(line: string): CommitDayEntry | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  const idx = trimmed.indexOf("\x1f");
+  if (idx === -1) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return { date: trimmed, author: "" };
+    }
+    return null;
+  }
+  const date = trimmed.slice(0, idx).trim();
+  const author = trimmed.slice(idx + 1).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  return { date, author };
+}
+
+export function parseHeatmapOutput(stdout: string): CommitDayEntry[] {
+  const entries: CommitDayEntry[] = [];
+  for (const line of stdout.split("\n")) {
+    const entry = parseHeatmapLine(line);
+    if (entry) entries.push(entry);
+  }
+  return entries;
+}
+
+/** Fetch commit dates and authors across all refs for heatmap visualization. */
+export async function getCommitHeatmap(repo: string, limit = 10000): Promise<CommitDayEntry[]> {
+  try {
+    const { stdout } = await runGit(repo, [
+      "log",
+      "--date=short",
+      "--pretty=format:%ad\x1f%an",
+      "--all",
+      "-n",
+      String(limit),
+      "--",
+    ]);
+    return parseHeatmapOutput(stdout);
+  } catch (e) {
+    const text = errText(e);
+    if (errCode(e) === 128 || /does not have any commits/i.test(text)) return [];
+    if (isErrnoEnt(e)) throw new Error("GIT_UNAVAILABLE: git not found on PATH");
+    throw new Error(text.trim().split("\n")[0] ?? "git log failed");
+  }
+}
+
+/** Retrieve current user name from git config (e.g. for scope:mine filter). */
+export async function getCurrentUser(repo: string): Promise<string> {
+  try {
+    const { stdout } = await runGit(repo, ["config", "user.name"]);
+    return stdout.trim();
+  } catch {
+    return "";
+  }
+}
+
+export function formatYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+export function formatDisplayDate(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(y!, (m ?? 1) - 1, d ?? 1);
+  const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${DAYS[date.getDay()]}, ${MONTHS[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+}
+
+export function calculateStreaks(
+  counts: Record<string, number>,
+  today: Date = new Date(),
+): { currentStreak: number; longestStreak: number } {
+  const activeDates = Object.keys(counts)
+    .filter((d) => (counts[d] ?? 0) > 0)
+    .sort();
+
+  if (activeDates.length === 0) {
+    return { currentStreak: 0, longestStreak: 0 };
+  }
+
+  let longestStreak = 0;
+  let curStreak = 0;
+  let prevDate: Date | null = null;
+
+  for (const dateStr of activeDates) {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const curDate = new Date(y!, (m ?? 1) - 1, d ?? 1);
+    if (prevDate) {
+      const diffMs = curDate.getTime() - prevDate.getTime();
+      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      if (diffDays === 1) {
+        curStreak++;
+      } else {
+        curStreak = 1;
+      }
+    } else {
+      curStreak = 1;
+    }
+    if (curStreak > longestStreak) {
+      longestStreak = curStreak;
+    }
+    prevDate = curDate;
+  }
+
+  let currentStreak = 0;
+  const checkDate = new Date(today);
+  let checkStr = formatYMD(checkDate);
+
+  if ((counts[checkStr] ?? 0) === 0) {
+    checkDate.setDate(checkDate.getDate() - 1);
+    checkStr = formatYMD(checkDate);
+  }
+
+  while ((counts[checkStr] ?? 0) > 0) {
+    currentStreak++;
+    checkDate.setDate(checkDate.getDate() - 1);
+    checkStr = formatYMD(checkDate);
+  }
+
+  return { currentStreak, longestStreak };
+}
+
+export function calculateLevel(count: number, maxCount: number): number {
+  if (count <= 0) return 0;
+  if (maxCount <= 4) return Math.min(4, count);
+  const q1 = Math.ceil(maxCount * 0.25);
+  const q2 = Math.ceil(maxCount * 0.5);
+  const q3 = Math.ceil(maxCount * 0.75);
+  if (count <= q1) return 1;
+  if (count <= q2) return 2;
+  if (count <= q3) return 3;
+  return 4;
+}
+
+export function formatMonthLabels(
+  startSunday: Date,
+  numWeeks: number,
+  colWidth: number = 2,
+): string {
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const chars = Array(numWeeks * colWidth).fill(" ");
+  let lastEnd = -1;
+
+  for (let w = 0; w < numWeeks; w++) {
+    const d = new Date(startSunday);
+    d.setDate(startSunday.getDate() + w * 7);
+    for (let day = 0; day < 7; day++) {
+      const cur = new Date(d);
+      cur.setDate(d.getDate() + day);
+      if (cur.getDate() === 1 || (w === 0 && day === 0)) {
+        const monthName = MONTHS[cur.getMonth()]!;
+        const colPos = w * colWidth;
+        if (colPos >= lastEnd + 1 && colPos + monthName.length <= chars.length) {
+          for (let i = 0; i < monthName.length; i++) {
+            chars[colPos + i] = monthName[i];
+          }
+          lastEnd = colPos + monthName.length;
+        }
+        break;
+      }
+    }
+  }
+  return chars.join("");
+}
+
+export function buildHeatmapData(
+  entries: CommitDayEntry[],
+  options?: {
+    numWeeks?: number;
+    today?: Date;
+    filterQuery?: string;
+  },
+): HeatmapData {
+  const numWeeks = options?.numWeeks ?? 52;
+  const today = options?.today ?? new Date();
+  const filter = options?.filterQuery?.trim().toLowerCase() ?? "";
+
+  const filtered = filter
+    ? entries.filter(
+        (e) => e.author.toLowerCase().includes(filter) || e.date.includes(filter),
+      )
+    : entries;
+
+  const counts: Record<string, number> = {};
+  let totalCommits = 0;
+  for (const entry of filtered) {
+    counts[entry.date] = (counts[entry.date] ?? 0) + 1;
+    totalCommits++;
+  }
+
+  const todayStr = formatYMD(today);
+  const currentSunday = new Date(today);
+  currentSunday.setDate(today.getDate() - today.getDay());
+
+  const startSunday = new Date(currentSunday);
+  startSunday.setDate(currentSunday.getDate() - (numWeeks - 1) * 7);
+
+  let activeDays = 0;
+  let maxDayCount = 0;
+  let peakDate: string | null = null;
+
+  for (let w = 0; w < numWeeks; w++) {
+    for (let day = 0; day < 7; day++) {
+      const d = new Date(startSunday);
+      d.setDate(startSunday.getDate() + w * 7 + day);
+      const dateStr = formatYMD(d);
+      if (d <= today) {
+        const count = counts[dateStr] ?? 0;
+        if (count > 0) {
+          activeDays++;
+          if (count > maxDayCount) {
+            maxDayCount = count;
+            peakDate = dateStr;
+          }
+        }
+      }
+    }
+  }
+
+  const weeks: HeatmapWeek[] = [];
+  for (let w = 0; w < numWeeks; w++) {
+    const days: HeatmapCell[] = [];
+    for (let day = 0; day < 7; day++) {
+      const d = new Date(startSunday);
+      d.setDate(startSunday.getDate() + w * 7 + day);
+      const dateStr = formatYMD(d);
+      const inRange = d <= today;
+      const count = inRange ? (counts[dateStr] ?? 0) : 0;
+      const level = inRange ? calculateLevel(count, maxDayCount) : 0;
+      days.push({ date: dateStr, count, level, inRange });
+    }
+    weeks.push({ days });
+  }
+
+  const streaks = calculateStreaks(counts, today);
+  const monthLabels = formatMonthLabels(startSunday, numWeeks, 2);
+
+  return {
+    weeks,
+    monthLabels,
+    totalCommits,
+    activeDays,
+    currentStreak: streaks.currentStreak,
+    longestStreak: streaks.longestStreak,
+    maxDayCount,
+    peakDate,
+    startDate: formatYMD(startSunday),
+    endDate: todayStr,
+  };
 }
