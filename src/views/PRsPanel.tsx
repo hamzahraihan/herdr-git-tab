@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useMemo, useRef } from "react";
 import type { PR } from "../types.js";
 import { contentHeight, terminalWidth, truncateToWidth } from "../width.js";
 import { SELECTED_BG } from "../theme.js";
@@ -56,7 +56,7 @@ export default function PRsPanel({
       </box>
     );
   }
-  const filtered = filterPRs(prs, query);
+  const filtered = useMemo(() => filterPRs(prs, query), [prs, query]);
   if (filtered.length === 0) {
     return (
       <box flexDirection="column">
