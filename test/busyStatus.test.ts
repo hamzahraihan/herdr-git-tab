@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { busyLabel } from "../src/busyStatus.js";
+import { busyLabel, SPINNER_FRAMES } from "../src/busyStatus.js";
 
 describe("busyLabel", () => {
   it("labels every manual op", () => {
@@ -13,5 +13,15 @@ describe("busyLabel", () => {
     expect(busyLabel({ kind: "issue", number: 9 })).toBe("Loading issue #9…");
     expect(busyLabel({ kind: "approve", number: 7 })).toBe("Approving PR #7…");
     expect(busyLabel({ kind: "create-pr" })).toBe("Creating PR…");
+  });
+});
+
+describe("SPINNER_FRAMES", () => {
+  it("contains valid spinning braille frames", () => {
+    expect(SPINNER_FRAMES.length).toBeGreaterThan(0);
+    expect(SPINNER_FRAMES[0]).toBe("⠋");
+    for (const frame of SPINNER_FRAMES) {
+      expect(frame.length).toBe(1);
+    }
   });
 });
