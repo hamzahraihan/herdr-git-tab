@@ -10,6 +10,8 @@ export type BusyOp =
   | { kind: "approve"; number: number }
   | { kind: "create-pr" };
 
+export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
 export function busyLabel(op: BusyOp): string {
   switch (op.kind) {
     case "refresh":
