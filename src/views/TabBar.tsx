@@ -10,6 +10,7 @@ export const TABS: TabDef[] = [
   { id: 4, label: "PRs" },
   { id: 5, label: "Issues" },
   { id: 6, label: "Status" },
+  { id: 7, label: "Heatmap" },
 ];
 
 export const ACTIVE_TAB_BG = "#c4b5fd";
