@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useMemo, useRef } from "react";
 import type { Branch, Commit, PR } from "../types.js";
 import { filterCommits } from "./HistoryPanel.js";
 import { cellWidth, contentHeight, terminalWidth, truncateToWidth } from "../width.js";
@@ -56,7 +56,7 @@ export default function FlowPanel({
   onSelect?: (index: number) => void;
   onDoubleClick?: (row: BranchRow) => void;
 }) {
-  const filtered = filterCommits(commits, query);
+  const filtered = useMemo(() => filterCommits(commits, query), [commits, query]);
   if (filtered.length === 0) {
     return (
       <box flexDirection="column">
