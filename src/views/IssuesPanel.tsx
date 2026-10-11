@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useMemo, useRef } from "react";
 import type { Issue } from "../types.js";
 import { contentHeight, terminalWidth, truncateToWidth } from "../width.js";
 import { SELECTED_BG } from "../theme.js";
@@ -55,7 +55,7 @@ export default function IssuesPanel({
       </box>
     );
   }
-  const filtered = filterIssues(issues, query);
+  const filtered = useMemo(() => filterIssues(issues, query), [issues, query]);
   if (filtered.length === 0) {
     return (
       <box flexDirection="column">
