@@ -44,7 +44,7 @@ import {
 } from "./github.js";
 import { defaultShellCwdFile, findNearestGitRepo, readShellCwdFile } from "./repoResolver.js";
 import { getWorkspaceCwd } from "./herdrWorkspace.js";
-import { cellWidth, terminalHeight, terminalWidth, truncateToWidth } from "./width.js";
+import { cellWidth, contentHeight, terminalHeight, terminalWidth, truncateToWidth } from "./width.js";
 import { KEYBAR_BG } from "./theme.js";
 import HeaderBar from "./views/TabBar.js";
 import HistoryPanel, { historyVisibleRows } from "./views/HistoryPanel.js";
@@ -100,6 +100,12 @@ export default function App({
   const [selPR, setSelPR] = useState(0);
   const [selIssue, setSelIssue] = useState(0);
   const [selStatus, setSelStatus] = useState(0);
+  // Independent viewport scroll offsets — mouse wheel moves these without
+  // touching the selection. Arrow keys update both selection and scroll.
+  const [scrollH, setScrollH] = useState(0);
+  const [scrollB, setScrollB] = useState(0);
+  const [scrollPR, setScrollPR] = useState(0);
+  const [scrollIssue, setScrollIssue] = useState(0);
   const [heatmapEntries, setHeatmapEntries] = useState<CommitDayEntry[]>([]);
   const [selHeatmapW, setSelHeatmapW] = useState<number | undefined>(undefined);
   const [selHeatmapD, setSelHeatmapD] = useState<number | undefined>(undefined);
@@ -272,6 +278,10 @@ export default function App({
     setSelPR(0);
     setSelIssue(0);
     setSelStatus(0);
+    setScrollH(0);
+    setScrollB(0);
+    setScrollPR(0);
+    setScrollIssue(0);
     setSelHeatmapW(undefined);
     setSelHeatmapD(undefined);
     remoteCheckedRepoRef.current = null;
@@ -608,11 +618,26 @@ export default function App({
       return;
     }
     if (input === "j" || key.name === "down") {
-      if (activePane === 1 || activePane === 2) setSelH((v) => v + 1);
-      else if (activePane === 3) setSelB((v) => Math.min(v + 1, branches.length - 1));
-      else if (activePane === 4) setSelPR((v) => Math.min(v + 1, prs.length - 1));
-      else if (activePane === 5) setSelIssue((v) => Math.min(v + 1, issues.length - 1));
-      else if (activePane === 6) {
+      if (activePane === 1 || activePane === 2) {
+        const limit = contentHeight();
+        setSelH((v) => v + 1);
+        setScrollH((s) => Math.max(s, selH + 1 - limit + 1));
+      } else if (activePane === 3) {
+        const limit = contentHeight();
+        const next = Math.min(selB + 1, Math.max(0, branches.length - 1));
+        setSelB(next);
+        setScrollB((s) => Math.max(s, next - limit + 1));
+      } else if (activePane === 4) {
+        const limit = Math.max(5, Math.floor(contentHeight() / 2));
+        const next = Math.min(selPR + 1, Math.max(0, prs.length - 1));
+        setSelPR(next);
+        setScrollPR((s) => Math.max(s, next - limit + 1));
+      } else if (activePane === 5) {
+        const limit = Math.max(4, Math.floor(contentHeight() / 3));
+        const next = Math.min(selIssue + 1, Math.max(0, issues.length - 1));
+        setSelIssue(next);
+        setScrollIssue((s) => Math.max(s, next - limit + 1));
+      } else if (activePane === 6) {
         const total = status ? statusPaths(status).length : 0;
         setSelStatus((v) => Math.min(v + 1, Math.max(0, total - 1)));
       } else if (activePane === 7) {
@@ -621,12 +646,27 @@ export default function App({
       return;
     }
     if (input === "k" || key.name === "up") {
-      if (activePane === 1 || activePane === 2) setSelH((v) => Math.max(0, v - 1));
-      else if (activePane === 3) setSelB((v) => Math.max(0, v - 1));
-      else if (activePane === 4) setSelPR((v) => Math.max(0, v - 1));
-      else if (activePane === 5) setSelIssue((v) => Math.max(0, v - 1));
-      else if (activePane === 6) setSelStatus((v) => Math.max(0, v - 1));
-      else if (activePane === 7) setSelHeatmapD((d) => Math.max(0, (d ?? 6) - 1));
+      if (activePane === 1 || activePane === 2) {
+        const next = Math.max(0, selH - 1);
+        setSelH(next);
+        setScrollH((s) => Math.min(s, next));
+      } else if (activePane === 3) {
+        const next = Math.max(0, selB - 1);
+        setSelB(next);
+        setScrollB((s) => Math.min(s, next));
+      } else if (activePane === 4) {
+        const next = Math.max(0, selPR - 1);
+        setSelPR(next);
+        setScrollPR((s) => Math.min(s, next));
+      } else if (activePane === 5) {
+        const next = Math.max(0, selIssue - 1);
+        setSelIssue(next);
+        setScrollIssue((s) => Math.min(s, next));
+      } else if (activePane === 6) {
+        setSelStatus((v) => Math.max(0, v - 1));
+      } else if (activePane === 7) {
+        setSelHeatmapD((d) => Math.max(0, (d ?? 6) - 1));
+      }
       return;
     }
     if (input === "h" || key.name === "left") {
@@ -813,7 +853,9 @@ export default function App({
               commits={commits}
               selected={selH}
               query={query}
+              scrollTop={scrollH}
               onSelect={(i) => setSelH(i)}
+              onScroll={(d) => setScrollH((s) => s + d)}
               onDoubleClick={(c) => openCommitDetail(c)}
             />
           )}
@@ -825,7 +867,9 @@ export default function App({
               selected={selH}
               query={query}
               mergedNames={mergedNames}
+              scrollTop={scrollH}
               onSelect={(i) => setSelH(i)}
+              onScroll={(d) => setScrollH((s) => s + d)}
               onDoubleClick={(row) => {
                 const hash = row.commits[0];
                 if (hash) openCommitDetail(hash);
@@ -838,7 +882,9 @@ export default function App({
               selected={selB}
               filter={branchFilter}
               error={paneErrors.branches}
+              scrollTop={scrollB}
               onSelect={(i) => setSelB(i)}
+              onScroll={(d) => setScrollB((s) => s + d)}
               onDoubleClick={(b) => {
                 if (!b.name.startsWith("remotes/") && b.name !== "(detached)" && !checkingOut) {
                   setError("");
@@ -863,7 +909,9 @@ export default function App({
               ghError={ghError}
               noRemote={noRemote}
               error={paneErrors.prs}
+              scrollTop={scrollPR}
               onSelect={(i) => setSelPR(i)}
+              onScroll={(d) => setScrollPR((s) => s + d)}
               onDoubleClick={(p) => openPRDetail(p.number)}
             />
           )}
@@ -892,7 +940,9 @@ export default function App({
               ghError={ghError}
               noRemote={noRemote}
               error={paneErrors.issues}
+              scrollTop={scrollIssue}
               onSelect={(i) => setSelIssue(i)}
+              onScroll={(d) => setScrollIssue((s) => s + d)}
               onDoubleClick={(iss) => openIssueDetail(iss.number)}
             />
           )}
