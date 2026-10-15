@@ -15,14 +15,18 @@ export default function BranchesPanel({
   selected,
   filter,
   error,
+  scrollTop,
   onSelect,
+  onScroll,
   onDoubleClick,
 }: {
   branches: Branch[];
   selected: number;
   filter: string;
   error?: string;
+  scrollTop: number;
   onSelect?: (index: number) => void;
+  onScroll?: (delta: number) => void;
   onDoubleClick?: (branch: Branch) => void;
 }) {
   if (error) {
@@ -36,13 +40,14 @@ export default function BranchesPanel({
   if (filtered.length === 0) {
     return (
       <box flexDirection="column">
-        <text fg="gray">{branches.length === 0 ? "No branches" : "No matches"}</text>
+        <text fg="gray">{filter ? "No matches" : "No branches"}</text>
       </box>
     );
   }
-  const safe = Math.min(selected, filtered.length - 1);
-  const inner = Math.max(20, terminalWidth() - 2);
   const limit = contentHeight();
+  const safe = Math.min(selected, Math.max(0, filtered.length - 1));
+  const start = Math.max(0, Math.min(scrollTop, Math.max(0, filtered.length - limit)));
+  const inner = Math.max(20, terminalWidth() - 2);
   const lastClick = useRef<ClickTracker | null>(null);
   const handleRowClick = (i: number, b: Branch): void => {
     onSelect?.(i);
@@ -59,15 +64,15 @@ export default function BranchesPanel({
       flexDirection="column"
       onMouseScroll={(e) => {
         const d = scrollDelta(e);
-        if (d !== 0) onSelect?.(Math.max(0, Math.min(selected + d, Math.max(0, filtered.length - 1))));
+        if (d !== 0) onScroll?.(d);
       }}
     >
-      {filtered.slice(0, limit).map((b, i) => {
-        const active = i === safe;
+      {filtered.slice(start, start + limit).map((b, i) => {
+        const active = start + i === safe;
         return (
           <box
             key={b.name}
-            onMouseDown={() => handleRowClick(i, b)}
+            onMouseDown={() => handleRowClick(start + i, b)}
             style={{ backgroundColor: active ? SELECTED_BG : undefined }}
           >
             <BranchRow branch={b} active={active} inner={inner} />
