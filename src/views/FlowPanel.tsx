@@ -22,6 +22,7 @@ export function flowVisibleRows(
   mergedNames: Set<string>,
   selected: number,
   limit: number = contentHeight(),
+  scrollTop?: number,
 ): { view: BranchRow[]; start: number; safe: number } {
   const filtered = filterCommits(commits, query);
   const currentBranch = branches.find((b) => b.current)?.name ?? null;
@@ -32,8 +33,11 @@ export function flowVisibleRows(
       ? { ...row, merged: true, mergedInto: trunk }
       : row,
   );
-  const safe = Math.min(selected, view.length - 1);
-  const start = Math.max(0, Math.min(safe - 8, view.length - limit));
+  const safe = Math.min(selected, Math.max(0, view.length - 1));
+  const start =
+    scrollTop !== undefined
+      ? Math.max(0, Math.min(scrollTop, Math.max(0, view.length - limit)))
+      : Math.max(0, Math.min(safe - 8, view.length - limit));
   return { view: view.slice(start, start + limit), start, safe };
 }
 
@@ -44,7 +48,9 @@ export default function FlowPanel({
   selected,
   query,
   mergedNames,
+  scrollTop,
   onSelect,
+  onScroll,
   onDoubleClick,
 }: {
   commits: Commit[];
@@ -53,7 +59,9 @@ export default function FlowPanel({
   selected: number;
   query: string;
   mergedNames: Set<string>;
+  scrollTop: number;
   onSelect?: (index: number) => void;
+  onScroll?: (delta: number) => void;
   onDoubleClick?: (row: BranchRow) => void;
 }) {
   const filtered = useMemo(() => filterCommits(commits, query), [commits, query]);
@@ -71,6 +79,8 @@ export default function FlowPanel({
     query,
     mergedNames,
     selected,
+    contentHeight(),
+    scrollTop,
   );
   if (view.length === 0) {
     return (
@@ -102,7 +112,7 @@ export default function FlowPanel({
       flexDirection="column"
       onMouseScroll={(e) => {
         const d = scrollDelta(e);
-        if (d !== 0) onSelect?.(Math.max(0, selected + d));
+        if (d !== 0) onScroll?.(d);
       }}
     >
       {view.map((row, i) => {
@@ -126,7 +136,6 @@ export default function FlowPanel({
     </box>
   );
 }
-
 function BranchRowView({
   row,
   active,
