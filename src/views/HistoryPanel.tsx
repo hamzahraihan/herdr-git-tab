@@ -21,10 +21,14 @@ export function historyVisibleRows(
   query: string,
   selected: number,
   limit: number = contentHeight(),
+  scrollTop?: number,
 ): { rows: Commit[]; start: number; safe: number } {
   const filtered = filterCommits(commits, query);
-  const safe = Math.min(selected, filtered.length - 1);
-  const start = Math.max(0, Math.min(safe - 8, filtered.length - limit));
+  const safe = Math.min(selected, Math.max(0, filtered.length - 1));
+  const start =
+    scrollTop !== undefined
+      ? Math.max(0, Math.min(scrollTop, Math.max(0, filtered.length - limit)))
+      : Math.max(0, Math.min(safe - 8, filtered.length - limit));
   return { rows: filtered.slice(start, start + limit), start, safe };
 }
 
@@ -32,13 +36,17 @@ export default function HistoryPanel({
   commits,
   selected,
   query,
+  scrollTop,
   onSelect,
+  onScroll,
   onDoubleClick,
 }: {
   commits: Commit[];
   selected: number;
   query: string;
+  scrollTop: number;
   onSelect?: (index: number) => void;
+  onScroll?: (delta: number) => void;
   onDoubleClick?: (commit: Commit) => void;
 }) {
   const filtered = useMemo(() => filterCommits(commits, query), [commits, query]);
@@ -50,8 +58,8 @@ export default function HistoryPanel({
     );
   }
   const limit = contentHeight();
-  const safe = Math.min(selected, filtered.length - 1);
-  const start = Math.max(0, Math.min(safe - 8, filtered.length - limit));
+  const safe = Math.min(selected, Math.max(0, filtered.length - 1));
+  const start = Math.max(0, Math.min(scrollTop, Math.max(0, filtered.length - limit)));
   const rows = filtered.slice(start, start + limit);
   const inner = Math.max(20, terminalWidth() - 2);
   const lastClick = useRef<ClickTracker | null>(null);
@@ -71,7 +79,7 @@ export default function HistoryPanel({
       flexDirection="column"
       onMouseScroll={(e) => {
         const d = scrollDelta(e);
-        if (d !== 0) onSelect?.(Math.max(0, selected + d));
+        if (d !== 0) onScroll?.(d);
       }}
     >
       {rows.map((c, i) => {
