@@ -29,7 +29,9 @@ export default function PRsPanel({
   ghError,
   noRemote,
   error,
+  scrollTop,
   onSelect,
+  onScroll,
   onDoubleClick,
 }: {
   prs: PR[];
@@ -38,7 +40,9 @@ export default function PRsPanel({
   ghError?: string;
   noRemote?: boolean;
   error?: string;
+  scrollTop: number;
   onSelect?: (index: number) => void;
+  onScroll?: (delta: number) => void;
   onDoubleClick?: (pr: PR) => void;
 }) {
   if (error) {
@@ -64,9 +68,10 @@ export default function PRsPanel({
       </box>
     );
   }
-  const safe = Math.min(selected, filtered.length - 1);
-  const width = terminalWidth();
   const limit = Math.max(5, Math.floor(contentHeight() / 2));
+  const safe = Math.min(selected, Math.max(0, filtered.length - 1));
+  const start = Math.max(0, Math.min(scrollTop, Math.max(0, filtered.length - limit)));
+  const width = terminalWidth();
   const lastClick = useRef<ClickTracker | null>(null);
   const handleRowClick = (i: number, p: PR): void => {
     onSelect?.(i);
@@ -83,17 +88,17 @@ export default function PRsPanel({
       flexDirection="column"
       onMouseScroll={(e) => {
         const d = scrollDelta(e);
-        if (d !== 0) onSelect?.(Math.max(0, Math.min(selected + d, Math.max(0, filtered.length - 1))));
+        if (d !== 0) onScroll?.(d);
       }}
     >
-      {filtered.slice(0, limit).map((p, i) => {
-        const active = i === safe;
+      {filtered.slice(start, start + limit).map((p, i) => {
+        const active = start + i === safe;
         const status = statusTag(p.checks);
         return (
           <box
             key={p.number}
             flexDirection="column"
-            onMouseDown={() => handleRowClick(i, p)}
+            onMouseDown={() => handleRowClick(start + i, p)}
             style={{ backgroundColor: active ? SELECTED_BG : undefined }}
           >
             <text>
