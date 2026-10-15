@@ -28,7 +28,9 @@ export default function IssuesPanel({
   ghError,
   noRemote,
   error,
+  scrollTop,
   onSelect,
+  onScroll,
   onDoubleClick,
 }: {
   issues: Issue[];
@@ -37,7 +39,9 @@ export default function IssuesPanel({
   ghError?: string;
   noRemote?: boolean;
   error?: string;
+  scrollTop: number;
   onSelect?: (index: number) => void;
+  onScroll?: (delta: number) => void;
   onDoubleClick?: (issue: Issue) => void;
 }) {
   if (error) {
@@ -63,9 +67,10 @@ export default function IssuesPanel({
       </box>
     );
   }
-  const safe = Math.min(selected, filtered.length - 1);
-  const width = terminalWidth();
   const limit = Math.max(4, Math.floor(contentHeight() / 3));
+  const safe = Math.min(selected, Math.max(0, filtered.length - 1));
+  const start = Math.max(0, Math.min(scrollTop, Math.max(0, filtered.length - limit)));
+  const width = terminalWidth();
   const lastClick = useRef<ClickTracker | null>(null);
   const handleRowClick = (idx: number, iss: Issue): void => {
     onSelect?.(idx);
@@ -82,11 +87,11 @@ export default function IssuesPanel({
       flexDirection="column"
       onMouseScroll={(e) => {
         const d = scrollDelta(e);
-        if (d !== 0) onSelect?.(Math.max(0, Math.min(selected + d, Math.max(0, filtered.length - 1))));
+        if (d !== 0) onScroll?.(d);
       }}
     >
-      {filtered.slice(0, limit).map((iss, idx) => {
-        const active = idx === safe;
+      {filtered.slice(start, start + limit).map((iss, i) => {
+        const active = start + i === safe;
         const status = statusLabel(iss.state);
         const labels = iss.labels.length > 0 ? iss.labels.map((l) => `[${l}]`).join(" ") : "";
         return (
@@ -94,7 +99,7 @@ export default function IssuesPanel({
             key={iss.number}
             flexDirection="column"
             marginBottom={1}
-            onMouseDown={() => handleRowClick(idx, iss)}
+            onMouseDown={() => handleRowClick(start + i, iss)}
             style={{ backgroundColor: active ? SELECTED_BG : undefined }}
           >
             <box>
