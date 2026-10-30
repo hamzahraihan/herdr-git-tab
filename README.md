@@ -79,6 +79,7 @@ Global (list focused, no overlay open):
 | `1`–`7` | Focus pane (1 history, 2 graph, 3 branches, 4 PRs, 5 issues, 6 status, 7 heatmap) |
 | `j` / `k` / `↑` / `↓` | Move selection (history, branches, PRs, issues, status files, heatmap days) |
 | Click | Select tab-strip item or row; wheel scrolls selection (needs `ui.mouse_capture = false` — Herdr captures mouse input by default) |
+| Select text | Drag over any text to select and copy it to the clipboard (OSC 52) |
 | `/` | Filter commits / PRs / issues by substring (`Esc`/`Enter` done; `Backspace` deletes) |
 | `m` | Toggle scope: this repo ↔ my work (`--search "involves:@me"`) |
 | `r` | Refresh all panes |

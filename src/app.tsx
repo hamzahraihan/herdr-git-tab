@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useKeyboard } from "@opentui/react";
+import { useKeyboard, useRenderer, useSelectionHandler } from "@opentui/react";
 import type { KeyEvent } from "@opentui/core";
 import { scrollDelta } from "./doubleClick.js";
 import { busyLabel, SPINNER_FRAMES } from "./busyStatus.js";
@@ -75,6 +75,19 @@ export default function App({
   watch?: boolean;
 }) {
   const exit = () => process.exit(0);
+  const renderer = useRenderer();
+  const copyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Copy any text the user selects with the mouse to the system clipboard
+  // via OSC 52, so selection works even while the app keeps mouse capture.
+  // Surface a short-lived toast so the user knows the copy happened.
+  useSelectionHandler((selection) => {
+    const text = selection.getSelectedText();
+    if (!text) return;
+    renderer.copyToClipboardOSC52(text);
+    setNotice("copied to clipboard");
+    if (copyToastTimer.current) clearTimeout(copyToastTimer.current);
+    copyToastTimer.current = setTimeout(() => setNotice(""), 2000);
+  });
   const [commits, setCommits] = useState<Commit[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [status, setStatus] = useState<RepoStatus | null>(null);

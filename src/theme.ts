@@ -4,6 +4,10 @@
  *  foregrounds (yellow/green/white/gray) stay legible on top of it. */
 export const SELECTED_BG = "#2e3440";
 
+/** Text selection highlight used when dragging over selectable text. */
+export const SELECTION_BG = "#4c566a";
+export const SELECTION_FG = "#eceff4";
+
 /** Detail reader chrome, sampled from the reference layout: slate comment
  *  headers, deep-blue full-width key bar, and a pale label chip. All keep
  *  white/green foregrounds legible on top. */
