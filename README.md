@@ -70,6 +70,42 @@ When stdout is not a TTY (Herdr non-interactive capture), the CLI prints
 Seven panes in one view: 1 history, 2 graph, 3 branches, 4 PRs, 5 issues,
 6 status, 7 heatmap. See [Keymap](#keymap) for every binding.
 
+## Features
+
+- **History / Graph**: `git log --graph` across all branches, with empty-repo
+  handling ("No commits yet").
+- **Branches**: `git branch -vv --all` with current-branch marker and `[gone]`
+  upstream detection. `Enter` checks out; `d` opens a log + diff-stat overlay.
+- **PRs & Issues**: GitHub-backed lists via `gh`, detail reader with description
+  + discussion, info rail on wide terminals, checkout/approve/open-on-GitHub
+  actions, and `gh pr create` with `--fill` fallback for piped stdin.
+- **Status**: `git status --porcelain=v1 -b` with staged/unstaged/untracked
+  sections, per-author commit bars, and a `git diff HEAD` overlay per file.
+- **Heatmap**: GitHub-style calendar contribution grid (days × weeks) derived
+  from `git log`, responsive to terminal width, with activity shading levels,
+  streak metrics (current streak, longest streak, peak day), and a detailed
+  commit inspector for the selected date. See [Heatmap (pane 7)](#heatmap-pane-7).
+- **Copy on select**: Drag over any text to select it; the selection is copied
+  to the clipboard via OSC 52 and a short "copied to clipboard" toast appears.
+
+## Screenshot
+
+Coming soon — contributions welcome!
+
+To add a screenshot, run the TUI in a repo with some history, then capture the
+terminal window and save it as `docs/screenshot.png` (or `docs/screenshot.svg`):
+
+```sh
+pnpm build
+node dist/cli.js --repo /path/to/a/repo
+```
+
+Then reference it here:
+
+```markdown
+![herdr-git-tab TUI](docs/screenshot.png)
+```
+
 ## Keymap
 
 Global (list focused, no overlay open):
@@ -129,7 +165,7 @@ Status (pane 6) + diff overlay:
 | `d` | Diff overlay: `git diff HEAD -- <file>` (`(untracked <path>: no diff)` for new files; `j`/`k` scroll, `q`/`Esc` back) |
 
 
-Heatmap (pane 7):
+## Heatmap (pane 7):
 
 | Key | Action |
 | --- | --- |
