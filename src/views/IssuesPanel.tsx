@@ -1,6 +1,6 @@
 import React, { useMemo, useRef } from "react";
+import { sanitizeRenderText, contentHeight, terminalWidth, truncateToWidth } from "../width.js";
 import type { Issue } from "../types.js";
-import { contentHeight, terminalWidth, truncateToWidth } from "../width.js";
 import { SELECTED_BG } from "../theme.js";
 import { isDoubleClick, scrollDelta, type ClickTracker } from "../doubleClick.js";
 
@@ -115,7 +115,7 @@ export default function IssuesPanel({
                 {labels ? (
                   <span fg="gray"> {truncateToWidth(labels, Math.max(8, width - 24))}</span>
                 ) : null}
-                <span fg="gray"> · {iss.author}</span>
+                <span fg="gray"> · {sanitizeRenderText(iss.author)}</span>
               </text>
             </box>
           </box>
