@@ -1,6 +1,6 @@
 import React from "react";
+import { sanitizeRenderText } from "../width.js";
 import { cellWidth, contentHeight, truncateToWidth } from "../width.js";
-
 /** Rows rendered by the detail reader stay line-addressable so j/k and the
  *  mouse wheel can page through long bodies: every `Row` is exactly one
  *  visual row. Boxes are drawn with text glyphs (not nested TUI borders) so
@@ -159,21 +159,22 @@ export function DetailRows({ rows }: { rows: Row[] }) {
       {rows.map((row, i) => (
         <text key={i}>
           {row.map((s, j) => {
+            const safe = sanitizeRenderText(s.t);
             if (s.bold) {
               return (
                 <strong key={j} fg={s.color} bg={s.backgroundColor}>
-                  {s.t}
+                  {safe}
                 </strong>
               );
             }
             return (
               <span key={j} fg={s.color} bg={s.backgroundColor}>
-                {s.t}
+                {safe}
               </span>
             );
           })}
         </text>
       ))}
-    </box>
+     </box>
   );
 }
