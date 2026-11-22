@@ -2,6 +2,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { sanitizeRenderText } from "../format.js";
 import { filterIssues } from "../filters.js";
+import { Badge, BusyView, Chip, Empty, ListScroller, Message, codeFont } from "../ui.js";
 
 import { ghBanner } from "./prs.js";
 

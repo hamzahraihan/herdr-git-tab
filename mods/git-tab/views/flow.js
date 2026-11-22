@@ -1,7 +1,8 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { sanitizeRenderText } from "../format.js";
-import { buildBranchHierarchy } from "../hierarchy.js";
+import { filterCommits } from "../filters.js";
+
 import { BusyView, Empty, ListScroller, Message, codeFont } from "../ui.js";
 
 const flowColors = (t) => [t.ansi4, t.ansi3, t.ansi5, t.ansi6, t.ansi2, t.ansi1];

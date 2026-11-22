@@ -1,6 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { sanitizeRenderText } from "../format.js";
+import { sanitizeRenderText, relativeTime } from "../format.js";
+
 import { filterBranches } from "../filters.js";
 import { Badge, BusyView, Empty, ListScroller, Message, codeFont } from "../ui.js";
 

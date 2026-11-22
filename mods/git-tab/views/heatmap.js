@@ -1,6 +1,8 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { sanitizeRenderText } from "../format.js";
+import { sanitizeRenderText, relativeTime, clamp } from "../format.js";
+
+
 import { formatDisplayDate, monthSegments } from "../heatmap.js";
 import {
   BusyView,
