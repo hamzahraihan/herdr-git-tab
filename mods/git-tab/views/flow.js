@@ -2,6 +2,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { sanitizeRenderText } from "../format.js";
 import { filterCommits } from "../filters.js";
+import { buildBranchHierarchy } from "../hierarchy.js";
 
 import { BusyView, Empty, ListScroller, Message, codeFont } from "../ui.js";
 
