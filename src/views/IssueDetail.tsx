@@ -15,10 +15,21 @@ import {
   type Row,
 } from "./detailFrame.js";
 
-/** Plain-text discussion lines: title, meta, body, then recent comments. */
+function statusColor(state: string, blocked: boolean): string {
+  if (blocked) return "yellow";
+  if (state === "OPEN") return "green";
+  if (state === "CLOSED") return "red";
+  return "white";
+}
+
+/**
+ * Plain-text discussion lines: title, meta, body, then recent comments.
+ */
 export function buildIssueDiscussionLines(detail: IssueDetail): string[] {
   const lines: string[] = [];
   lines.push(`#${detail.number} ${detail.title}`);
+
+
   lines.push(`by ${detail.author} · ${detail.state}`);
   lines.push("");
   const body = detail.body.trim() ? detail.body.trim() : "(no description)";
@@ -81,20 +92,22 @@ export default function IssueDetailPanel({
 
 function titleRows(detail: IssueDetail, inner: number): Row[] {
   const stateTag = `| ${detail.state}`;
+  const stateColor = statusColor(detail.state, detail.blocked);
   const title: Row = [
     { t: `${fitRow(` ${stateTag}`, `#${detail.number} ${detail.title}`, inner)} `, color: "white", bold: true },
-    { t: stateTag, color: "green", bold: true },
+    { t: stateTag, color: stateColor, bold: true },
   ];
   const author = fitRow(`by  · ${detail.state}`, detail.author, inner);
   const byline: Row = [
     { t: `by ${author} · `, color: "gray" },
-    { t: detail.state, color: "green" },
+    { t: detail.state, color: stateColor },
   ];
   const body = detail.body.trim() ? detail.body.trim() : "(no description)";
   const content: Row[] = [title, byline, [{ t: " " }]];
   for (const line of wrapText(body, inner)) content.push([{ t: line || " ", color: "white" }]);
   return frame(inner, content);
 }
+
 
 function commentFrame(header: string, body: string, inner: number): Row[] {
   const text = body.trim() ? body.trim() : "(no content)";
@@ -103,11 +116,12 @@ function commentFrame(header: string, body: string, inner: number): Row[] {
 }
 
 function railRows(detail: IssueDetail, inner: number): Row[] {
+  const stateColor = statusColor(detail.state, detail.blocked);
   const content: Row[] = [
     [{ t: "INFO", color: "white", bold: true }],
     [
       { t: "status: ", color: "gray" },
-      { t: detail.state, color: "green" },
+      { t: detail.state, color: stateColor },
     ],
     ...labelsRow(detail.labels, inner),
     ...field("assignees: ", detail.assignees.length > 0 ? detail.assignees.join(", ") : "–", inner),
@@ -116,6 +130,7 @@ function railRows(detail: IssueDetail, inner: number): Row[] {
   ];
   return frame(inner, content);
 }
+
 
 function labelsRow(labels: string[], inner: number): Row[] {
   if (labels.length === 0) return field("labels: ", "—", inner);

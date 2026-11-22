@@ -92,7 +92,24 @@ describe("parsePRsJson / parseIssuesJson", () => {
       },
     ]);
     expect(issues[0].labels).toEqual(["bug", "p1"]);
+    expect(issues[0].blocked).toBe(false);
   });
+
+  it("maps issue blocked from open blockedBy", () => {
+    const issues = parseIssuesJson([
+      {
+        number: 2,
+        title: "b",
+        author: { login: "x" },
+        labels: [],
+        state: "OPEN",
+        blockedBy: { nodes: [{ state: "OPEN" }, { state: "CLOSED" }] },
+        url: "u",
+      },
+    ]);
+    expect(issues[0].blocked).toBe(true);
+  });
+
 });
 
 describe("getPRs / getIssues error classification", () => {

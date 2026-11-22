@@ -65,17 +65,42 @@ describe("parseIssueDetailJson", () => {
       title: "broken",
       author: { login: "ada" },
       state: "OPEN",
+      blocked: false,
       url: "https://github.com/x/y/issues/7",
       body: "details",
       labels: [{ name: "bug" }],
       assignees: [{ login: "bob" }],
       comments: [{ author: { login: "cat" }, body: "repro" }],
     });
+    expect(d.blocked).toBe(false);
     expect(d.labels).toEqual(["bug"]);
     expect(d.assignees).toEqual(["bob"]);
     expect(d.comments).toHaveLength(1);
   });
+
+  it("maps blocked true from open blockedBy", () => {
+    const d = parseIssueDetailJson({
+      number: 7,
+      title: "blocked",
+      author: { login: "ada" },
+      state: "OPEN",
+      blockedBy: { nodes: [{ state: "OPEN" }, { state: "CLOSED" }] },
+      url: "https://github.com/x/y/issues/7",
+      body: "details",
+      labels: [],
+      assignees: [],
+      comments: [],
+    });
+    expect(d.blocked).toBe(true);
+  });
+
+  it("defaults missing detail fields", () => {
+    const d = parseIssueDetailJson({ number: 1, title: "t", state: "OPEN", url: "u" });
+    expect(d.body).toBe("");
+    expect(d.blocked).toBe(false);
+  });
 });
+
 
 describe("detail layout", () => {
   it("splits wide terminals into discussion + rail", () => {
@@ -171,6 +196,7 @@ describe("detail text builders", () => {
       title: "t",
       author: "ada",
       state: "OPEN",
+      blocked: false,
       url: "u",
       body: "",
       labels: ["bug"],
@@ -184,7 +210,25 @@ describe("detail text builders", () => {
     expect(text).toMatch(/comments: 1/);
   });
 
+  it("issue rail shows Blocked state in yellow when blocked", () => {
+    const rail = buildIssueRailLines({
+      number: 7,
+      title: "t",
+      author: "ada",
+      state: "OPEN",
+      blocked: true,
+      url: "u",
+      body: "",
+      labels: [],
+      assignees: [],
+      comments: [],
+    });
+    const text = rail.join("\n");
+    expect(text).toMatch(/state: OPEN/);
+  });
   it("issue discussion keeps only recent comments", () => {
+
+
     const comments = Array.from({ length: 15 }, (_, i) => ({
       author: `u${i}`,
       body: `c${i}`,
@@ -194,6 +238,7 @@ describe("detail text builders", () => {
       title: "t",
       author: "ada",
       state: "OPEN",
+      blocked: false,
       url: "u",
       body: "desc",
       labels: [],
@@ -206,4 +251,6 @@ describe("detail text builders", () => {
     expect(text).not.toMatch(/u0 commented/);
     expect(text).toMatch(/u14 commented/);
   });
+
+
 });

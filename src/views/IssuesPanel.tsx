@@ -15,11 +15,13 @@ export function filterIssues(issues: Issue[], query: string): Issue[] {
   );
 }
 
-function statusLabel(state: string): { label: string; color: string } {
+function statusLabel(state: string, blocked: boolean): { label: string; color: string } {
+  if (blocked) return { label: "Blocked", color: "yellow" };
   if (state === "OPEN") return { label: "Open", color: "green" };
-  if (state === "CLOSED") return { label: "Closed", color: "red" };
   return { label: state, color: "yellow" };
 }
+
+
 
 export default function IssuesPanel({
   issues,
@@ -92,7 +94,9 @@ export default function IssuesPanel({
     >
       {filtered.slice(start, start + limit).map((iss, i) => {
         const active = start + i === safe;
-        const status = statusLabel(iss.state);
+        const status = statusLabel(iss.state, iss.blocked);
+
+
         const labels = iss.labels.length > 0 ? iss.labels.map((l) => `[${l}]`).join(" ") : "";
         return (
           <box

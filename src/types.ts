@@ -36,8 +36,10 @@ export type Issue = {
   author: string;
   labels: string[];
   state: string;
+  blocked: boolean;
   url: string;
 };
+
 
 export type Scope = "repo" | "mine";
 
@@ -81,12 +83,14 @@ export type IssueDetail = {
   title: string;
   author: string;
   state: string;
+  blocked: boolean;
   url: string;
   body: string;
   labels: string[];
   assignees: string[];
   comments: DetailComment[];
 };
+
 
 
 export type FileEntry = {

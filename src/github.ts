@@ -52,8 +52,10 @@ type IssueJson = {
   author: { login: string };
   labels: Array<{ name: string }>;
   state: string;
+  blockedBy?: { nodes: Array<{ state: string }> };
   url: string;
 };
+
 
 /** Worst-of mapping: failure > pending > success; empty → "—". */
 export function mapChecks(rollup: PRJson["statusCheckRollup"]): string {
@@ -86,9 +88,11 @@ export function parseIssuesJson(items: IssueJson[]): Issue[] {
     author: i.author?.login ?? "?",
     labels: (i.labels ?? []).map((l) => l.name),
     state: i.state,
+    blocked: i.blockedBy?.nodes.some((n) => n.state === "OPEN") ?? false,
     url: i.url,
   }));
 }
+
 
 /** `m` toggles list scope: this repo vs everything involving you. */
 export function prListArgs(scope: Scope): string[] {
@@ -111,10 +115,11 @@ export function issueListArgs(scope: Scope): string[] {
     "--limit",
     "50",
     "--json",
-    "number,title,author,labels,state,url",
+    "number,title,author,labels,state,blockedBy,url",
   ];
   return scope === "mine" ? [...base, "--search", "involves:@me"] : base;
 }
+
 
 export async function getPRs(repo: string, scope: Scope = "repo"): Promise<PR[]> {
   try {
@@ -194,14 +199,17 @@ type IssueDetailJson = {
   body?: string;
   labels?: Array<{ name: string }>;
   assignees?: Array<{ login?: string }>;
+  blockedBy?: { nodes: Array<{ state: string }> };
   comments?: CommentJson[];
 };
+
 
 export const PR_DETAIL_FIELDS =
   "number,title,author,state,url,body,headRefName,baseRefName,statusCheckRollup,labels,mergeable,mergeStateStatus,reviewDecision,reviews,comments,additions,deletions,changedFiles,commits,isDraft";
 
 export const ISSUE_DETAIL_FIELDS =
-  "number,title,author,state,url,body,labels,assignees,comments";
+  "number,title,author,state,url,body,labels,assignees,blockedBy,comments";
+
 
 function parseComments(items: CommentJson[] | undefined): DetailComment[] {
   return (items ?? []).map((c) => ({
@@ -256,6 +264,7 @@ export function parseIssueDetailJson(i: IssueDetailJson): IssueDetail {
     title: i.title ?? "",
     author: i.author?.login ?? "?",
     state: i.state ?? "",
+    blocked: i.blockedBy?.nodes.some((n) => n.state === "OPEN") ?? false,
     url: i.url ?? "",
     body: i.body ?? "",
     labels: (i.labels ?? []).map((l) => l.name),
@@ -263,6 +272,7 @@ export function parseIssueDetailJson(i: IssueDetailJson): IssueDetail {
     comments: parseComments(i.comments),
   };
 }
+
 
 function detailError(e: unknown, what: string): Error {
   const unavail = toUnavailable(e);
