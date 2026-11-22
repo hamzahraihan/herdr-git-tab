@@ -397,9 +397,12 @@ export async function getFileDiff(repo: string, path: string, limit = 100): Prom
   }
 }
 
-/** Commit detail for history/flow double-click: `git show` capped for the
- *  overlay. Returns `$ git show <hash>` header plus show output. */
 export async function getCommitDetail(repo: string, hash: string, limit = 200): Promise<string> {
+  // Commit hashes are 40-hex. Anything else (e.g. a `-`-prefixed value) must
+  // never reach `git show` as an argument, where it would be read as a flag.
+  if (!/^[0-9a-f]{40}$/.test(hash ?? "")) {
+    throw new Error(`invalid commit hash: ${hash}`);
+  }
   try {
     const { stdout } = await runGit(repo, ["show", "--stat", "-p", "--format=fuller", hash, "--"]);
     const out = stdout.trim();
