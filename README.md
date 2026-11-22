@@ -224,6 +224,26 @@ description = "Open Git Tab"
 ```
 
 ## Herdr tab wiring
+## Mod (GPUI panel)
+
+A second build of the same panel lives in `mods/git-tab/` as a Herdr app mod
+(GPUI toolkit) rather than a terminal TUI. It follows the active space's
+focused terminal folder and runs git/gh on that machine.
+
+See [mods/RECIPE.md](mods/RECIPE.md) for install instructions
+(`herdr-app check ~/.config/herdr-app/mods/git-tab`, then wire
+`{ "mod": "git-tab" }` into a layout block).
+
+```toml
+# In a cloned layout:
+{ "id": "git-tab", "type": "block",
+  "content": { "mod": "git-tab", "props": { "folder": "/path/to/repo" } } }
+```
+
+Panes: Commits, Flow, Branches, PRs, Issues, Status, Heatmap. Same key model
+as the TUI: `1`–`7` switch panes, `j`/`k` move, `/` filter, `m` scope,
+`r` refresh, `Enter` open, `d` diff, `c` create PR. PR detail checks out,
+approves, and opens on GitHub but never merges or runs terminal diff commands.
 
 Copy `herdr-tab.yaml` into your herdr-spreader/infra config:
 
