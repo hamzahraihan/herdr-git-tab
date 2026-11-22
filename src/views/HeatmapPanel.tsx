@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import type { Commit, CommitDayEntry, HeatmapCell } from "../types.js";
 import { buildHeatmapData, formatDisplayDate } from "../git.js";
-import { cellWidth, terminalWidth, truncateToWidth } from "../width.js";
+import { cellWidth, sanitizeRenderText, terminalWidth, truncateToWidth } from "../width.js";
 import { relativeTime } from "../time.js";
 import { scrollDelta } from "../doubleClick.js";
 
@@ -217,7 +217,7 @@ export default function HeatmapPanel({
                   <strong fg="white">
                     {truncateToWidth(c.subject, Math.max(10, width - 36))}
                   </strong>
-                  <span fg="gray">{` (${c.author} · ${relativeTime(c.date)})`}</span>
+                  <span fg="gray">{` (${sanitizeRenderText(c.author)} · ${relativeTime(c.date)})`}</span>
                 </text>
               </box>
             ))}
