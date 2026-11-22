@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "title": "Git",
+  "place": "right",
+  "size": 560,
+  "focusable": true,
+  "overlay": {
+    "kind": "window",
+    "width": 900,
+    "height": 700
+  }
+}
