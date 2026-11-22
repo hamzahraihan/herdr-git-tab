@@ -66,18 +66,26 @@ export function cellWidth(text: string): number {
 
 /** Cut plain text to at most `max` display columns, ending with an
  *  ellipsis when truncated. Never splits a wide character. */
+/** Remove ANSI escapes and C0 control characters (except \n, \t) so
+ *  untrusted remote/commit text cannot inject terminal sequences.
+ *  CSI/OSC sequences are stripped before width measurement or truncation. */
+export function sanitizeRenderText(text: string): string {
+  return String(text ?? "").replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
+}
+
 export function truncateToWidth(text: string, max: number): string {
+  const clean = sanitizeRenderText(text);
   if (max < 1) return "";
-  if (cellWidth(text) <= max) return text;
+  if (cellWidth(clean) <= max) return clean;
   let width = 0;
   let end = 0;
-  for (const ch of text) {
+  for (const ch of clean) {
     const w = charWidth(ch.codePointAt(0)!);
     if (width + w > max - 1) break;
     width += w;
     end += ch.length;
   }
-  return `${text.slice(0, end)}…`;
+  return `${clean.slice(0, end)}…`;
 }
 
 
