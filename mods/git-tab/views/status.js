@@ -1,6 +1,8 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, Scrollbar } from "gpui-base";
-import { sanitizeRenderText, clamp } from "../format.js";
+import { sanitizeRenderText, clamp, scaleBars, plural } from "../format.js";
+
+
 
 import { spanLabel, statusPaths } from "../git.js";
 import { BusyView, Empty, Icon, ListScroller, Message, codeFont } from "../ui.js";
