@@ -4,11 +4,15 @@ import { sanitizeRenderText } from "../format.js";
 import { Badge, BusyView, Chip, Empty, ListScroller, Message, codeFont } from "../ui.js";
 import { ghBanner } from "./prs.js";
 
-function issueTag(state, t) {
+function issueTag(state, blocked, t) {
+  if (blocked) return { label: "Blocked", color: t.accent };
+
+
   if (state === "OPEN") return { label: "Open", color: t.done };
   if (state === "CLOSED") return { label: "Closed", color: t.blocked };
   return { label: state || "—", color: t.working };
 }
+
 
 export default {
   renderIssues(t, cx) {
@@ -50,7 +54,8 @@ export default {
     return ListScroller("git-issues", this.scrolls.issues).children(
       issues.map((issue, index) => {
         const active = index === safe;
-        const tag = issueTag(issue.state, t);
+        const tag = issueTag(issue.state, issue.blocked, t);
+
         const labels = issue.labels.slice(0, 3);
         return v_flex()
           .id(`git-issue-${issue.number}`)

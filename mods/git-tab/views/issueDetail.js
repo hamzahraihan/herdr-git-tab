@@ -14,16 +14,19 @@ import {
 } from "../ui.js";
 
 function issueState(detail, t) {
+  if (detail.blocked) return { label: "Blocked", color: t.accent };
   if (detail.state === "OPEN") return { label: "Open", color: t.done };
   if (detail.state === "CLOSED") return { label: "Closed", color: t.blocked };
   return { label: detail.state || "—", color: t.muted };
 }
 
+
 function issueInfo(detail, t) {
   return Card(
     "git-issue-info",
     [
-      Field("state", detail.state || "—", detail.state === "OPEN" ? t.done : t.blocked),
+      Field("state", detail.state || "—", detail.blocked ? t.accent : detail.state === "OPEN" ? t.done : t.blocked),
+
       Field("author", detail.author || "?"),
       Field("comments", String(detail.comments.length)),
       h_flex()

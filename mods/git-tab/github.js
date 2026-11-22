@@ -10,7 +10,8 @@ const TIMEOUT = 30000;
 const PUSH_TIMEOUT = 120000;
 const PR_DETAIL_FIELDS =
   "number,title,author,state,url,body,headRefName,baseRefName,statusCheckRollup,labels,mergeable,mergeStateStatus,reviewDecision,reviews,comments,additions,deletions,changedFiles,commits,isDraft";
-const ISSUE_DETAIL_FIELDS = "number,title,author,state,url,body,labels,assignees,comments";
+const ISSUE_DETAIL_FIELDS = "number,title,author,state,url,body,labels,assignees,blockedBy,comments";
+
 
 function opts(cwd, on, timeout = TIMEOUT) {
   const options = { cwd, timeout };
@@ -94,9 +95,11 @@ export function parseIssuesJson(items) {
     author: item.author?.login ?? "?",
     labels: (item.labels ?? []).map((label) => label.name).filter(Boolean),
     state: item.state ?? "",
+    blocked: item.blockedBy?.nodes.some((n) => n.state === "OPEN") ?? false,
     url: item.url ?? "",
   }));
 }
+
 
 export function prListArgs(scope) {
   const base = [
@@ -111,9 +114,10 @@ export function prListArgs(scope) {
 }
 
 export function issueListArgs(scope) {
-  const base = ["issue", "list", "--limit", "50", "--json", "number,title,author,labels,state,url"];
+  const base = ["issue", "list", "--limit", "50", "--json", "number,title,author,labels,state,blockedBy,url"];
   return scope === "mine" ? [...base, "--search", "involves:@me"] : base;
 }
+
 
 function parseJson(stdout, what) {
   try {
@@ -197,6 +201,7 @@ export function parseIssueDetailJson(issue) {
     title: issue.title ?? "",
     author: issue.author?.login ?? "?",
     state: issue.state ?? "",
+    blocked: issue.blockedBy?.nodes.some((n) => n.state === "OPEN") ?? false,
     url: issue.url ?? "",
     body: issue.body ?? "",
     labels: (issue.labels ?? []).map((label) => label.name).filter(Boolean),
@@ -204,6 +209,7 @@ export function parseIssueDetailJson(issue) {
     comments: parseComments(issue.comments),
   };
 }
+
 
 export async function getPRDetail(cwd, on, number) {
   const result = await runGh(cwd, on, ["pr", "view", String(number), "--json", PR_DETAIL_FIELDS]);
