@@ -2,9 +2,8 @@ import React, { useMemo, useRef } from "react";
 import type { Commit } from "../types.js";
 import { relativeTime } from "../time.js";
 import { SELECTED_BG } from "../theme.js";
-import { cellWidth, contentHeight, terminalWidth, truncateToWidth } from "../width.js";
+import { sanitizeRenderText, cellWidth, contentHeight, terminalWidth, truncateToWidth } from "../width.js";
 import { isDoubleClick, scrollDelta, type ClickTracker } from "../doubleClick.js";
-
 export function filterCommits(commits: Commit[], query: string): Commit[] {
   const q = query.trim().toLowerCase();
   if (!q) return commits;
@@ -101,7 +100,7 @@ export default function HistoryPanel({
 
 function CommitRow({ commit: c, active, inner }: { commit: Commit; active: boolean; inner: number }) {
   const rel = relativeTime(c.date);
-  const right = c.author ? `${c.author} · ${rel}` : rel;
+  const right = sanitizeRenderText(c.author ? `${c.author} · ${rel}` : rel);
   const refsSuffix = c.refs.length > 0 ? ` ${c.refs.join(" ")}` : "";
   const prefix = `• ${c.shortHash} `;
   const subjectBudget = Math.max(
