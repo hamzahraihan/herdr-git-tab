@@ -14,8 +14,8 @@ One column on the `canvas` color. Top to bottom:
 - **Header**, 42px tall, with a tab strip (Commits, Flow, Branches, PRs, Issues, Status, Heatmap).
   The active tab is `selected`/`foreground`; others `muted`; both get `hover` under the pointer.
   A scope chip (`repo`/`mine`) and a refresh control sit to the right.
-- **Commits** (`git log --graph` across all branches, last 100): hash, subject, refs, author,
-  age; rows 28px tall with a `●`/`◆` merge marker.
+- **Commits** (`git log --pretty=format:... --all -n 100` across all branches, last 100):
+  hash, subject, refs, author, age; rows 28px tall with a `●`/`◆` merge marker.
 - **Flow**: one lane per branch, trunk first; merge commits as diamonds, ahead/behind, PR number,
   `merged → main`.
 - **Branches**: `git branch -vv --all`, current marker, upstream, `[gone]`, tip subject and age.
@@ -103,8 +103,9 @@ OSC 52 copy.
 - `mods/git-tab/git.js` / `github.js` import `exec`, `checking`, `props`, `theme`, `settings`,
   `focused`, `home`, `nextCommand`, `panes`, `spaces`, `watchFolder` from `herdr`.
 - Programs: `git log`, `git branch`, `git status`, `git diff`, `git show`, `git rev-list`,
-  `git shortlog`, `gh pr list`, `gh issue list`, `gh pr view`, `gh issue view`, `gh pr create`,
-  `gh pr checkout`, `gh pr review`, run with `exec(..., { cwd, on })` in the repo folder.
+  `git shortlog`, `git for-each-ref`, `gh pr list`, `gh issue list`, `gh pr view`,
+  `gh issue view`, `gh pr create`, `gh pr checkout`, `gh pr review`, run with
+  `exec(..., { cwd, on })` in the repo folder.
 - No `keys.json`: the mod defines no keys. The **Git** tab button and `1`–`7`/`j`/`k`/etc. are
   wired by the hosting layout/tab bar (`mods/tabs-issues`). Dock as a side panel by cloning
   `main` and adding `{ "id": "git-tab", "type": "block",

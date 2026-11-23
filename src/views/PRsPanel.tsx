@@ -30,6 +30,7 @@ export default function PRsPanel({
   noRemote,
   error,
   scrollTop,
+  loading = false,
   onSelect,
   onScroll,
   onDoubleClick,
@@ -41,6 +42,7 @@ export default function PRsPanel({
   noRemote?: boolean;
   error?: string;
   scrollTop: number;
+  loading?: boolean;
   onSelect?: (index: number) => void;
   onScroll?: (delta: number) => void;
   onDoubleClick?: (pr: PR) => void;
@@ -64,7 +66,9 @@ export default function PRsPanel({
   if (filtered.length === 0) {
     return (
       <box flexDirection="column">
-        <text fg="gray">{noRemote ? "(no GitHub remote)" : "No PRs"}</text>
+        <text fg="gray">
+          {loading && prs.length === 0 ? "Loading PRs…" : noRemote ? "(no GitHub remote)" : "No PRs"}
+        </text>
       </box>
     );
   }

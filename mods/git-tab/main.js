@@ -35,6 +35,7 @@ const scopeFromStorage = () => {
 class GitTab extends View {
   init(_props, cx) {
     this.scope = scopeFromStorage();
+    this.active = tabFromStorage();
     this.query = "";
     this.branchFilter = "";
     this.filterMode = null;
@@ -57,6 +58,12 @@ class GitTab extends View {
     this.status = null;
     this.prs = [];
     this.issues = [];
+    this.ghLoadedFor = null;
+    this.ghLoadedAt = null;
+    this.ghDeadFor = null;
+    this.ghLoading = false;
+    this.ghLoadId = 0;
+    this.lastRefFingerprint = null;
     this.stats = null;
     this.heatEntries = [];
     this.user = "";

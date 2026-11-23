@@ -44,6 +44,7 @@ export default {
       return v_flex().flex_1().min_h(0).p(6).child(Message(this.paneErrors.issues, true));
     }
     if (this.loading && !this.loadedOnce) return BusyView("Loading issues…");
+    if (this.ghLoading) return BusyView("Loading issues…");
 
     const issues = filterIssues(this.issues, this.query);
     if (!issues.length) {

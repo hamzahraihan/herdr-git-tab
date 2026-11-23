@@ -65,6 +65,7 @@ export default {
       return v_flex().flex_1().min_h(0).p(6).child(Message(this.paneErrors.prs, true));
     }
     if (this.loading && !this.loadedOnce) return BusyView("Loading pull requests…");
+    if (this.ghLoading) return BusyView("Loading pull requests…");
 
     const prs = filterPRs(this.prs, this.query);
     if (!prs.length) {

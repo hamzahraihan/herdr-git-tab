@@ -5,7 +5,6 @@ export type Commit = {
   date: string;
   subject: string;
   refs: string[];
-  graph: string;
   parents: string[];
 };
 

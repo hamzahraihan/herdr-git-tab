@@ -7,7 +7,8 @@ import { parseHeatmapOutput } from "./heatmap.js";
 
 const TIMEOUT = 30000;
 const LIMIT = 100;
-const HEATMAP_LIMIT = 10000;
+// The pane shows at most 52 weeks; a year of commits comfortably covers it.
+const HEATMAP_LIMIT = 3650;
 const FIELD = "\x1f";
 
 // These reads write nothing under .git (no index refresh, lock, or fsmonitor
@@ -72,7 +73,6 @@ export async function gitTop(cwd, on) {
 export function parseHistoryLine(line) {
   const match = /[0-9a-f]{40}/.exec(line);
   if (!match) return null;
-  const graph = line.slice(0, match.index);
   const fields = line.slice(match.index).split(FIELD);
   if (fields.length < 7) return null;
   const hash = fields[0];
@@ -94,7 +94,6 @@ export function parseHistoryLine(line) {
           .map((ref) => ref.trim())
           .filter(Boolean)
       : [],
-    graph,
     parents: parentsRaw.trim() ? parentsRaw.trim().split(/\s+/) : [],
   };
 }
@@ -110,9 +109,10 @@ export function parseHistoryOutput(stdout) {
 }
 
 export async function getHistory(cwd, on, limit = LIMIT) {
+  // No --graph: the panels never render graph prefixes, and asking git to
+  // lay out the DAG of every ref costs real CPU on large histories.
   const result = await readGit(cwd, on, [
     "log",
-    "--graph",
     `--pretty=format:%H${FIELD}%h${FIELD}%an${FIELD}%cI${FIELD}%s${FIELD}%D${FIELD}%P`,
     "--all",
     "-n",
@@ -123,6 +123,24 @@ export async function getHistory(cwd, on, limit = LIMIT) {
   if (noCommits(result)) return [];
   if (isNotRepo(result)) throw new Error("NOT_A_GIT_REPO");
   throw new Error(failure(result, "git log failed"));
+}
+
+/** A cheap staleness stamp over the refs table: one in-memory for-each-ref
+ *  read (no history walk) that changes only when a branch or remote tip
+ *  moves. Empty string when the repo has no refs yet; null when the read
+ *  fails, in which case callers fall back to a full refresh. */
+export async function getRefFingerprint(cwd, on) {
+  const result = await readGit(cwd, on, [
+    "for-each-ref",
+    `--format=%(refname:short)${FIELD}%(objectname)`,
+    "refs/heads",
+    "refs/remotes",
+  ]);
+  if (result.code !== 0) {
+    if (isNotRepo(result)) throw new Error("NOT_A_GIT_REPO");
+    return null;
+  }
+  return result.stdout;
 }
 
 export function parseBranchesOutput(stdout, headRef) {
@@ -401,9 +419,12 @@ export async function getCommitDetail(cwd, on, hash, limit = 200) {
 }
 
 export async function getCommitHeatmap(cwd, on, limit = HEATMAP_LIMIT) {
+  // --since keeps the walk inside the window the grid can show (52 weeks);
+  // a bare -n cap re-logs whole histories for data the window throws away.
   const result = await readGit(cwd, on, [
     "log",
     "--date=short",
+    "--since=370 days",
     `--pretty=format:%ad${FIELD}%an`,
     "--all",
     "-n",

@@ -18,7 +18,7 @@ export const locationMethods = {
     this.handle.focus();
     cx.timer.after(120, () => this.handle.focus());
 
-    cx.timer.every(2000, (cx) => {
+    cx.timer.every(5000, (cx) => {
       if (!this.fixed) this.follow(cx);
     });
 

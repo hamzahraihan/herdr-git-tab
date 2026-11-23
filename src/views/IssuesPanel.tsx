@@ -31,6 +31,7 @@ export default function IssuesPanel({
   noRemote,
   error,
   scrollTop,
+  loading = false,
   onSelect,
   onScroll,
   onDoubleClick,
@@ -42,6 +43,7 @@ export default function IssuesPanel({
   noRemote?: boolean;
   error?: string;
   scrollTop: number;
+  loading?: boolean;
   onSelect?: (index: number) => void;
   onScroll?: (delta: number) => void;
   onDoubleClick?: (issue: Issue) => void;
@@ -65,7 +67,9 @@ export default function IssuesPanel({
   if (filtered.length === 0) {
     return (
       <box flexDirection="column">
-        <text fg="gray">{noRemote ? "(no GitHub remote)" : "No issues"}</text>
+        <text fg="gray">
+          {loading && issues.length === 0 ? "Loading issues…" : noRemote ? "(no GitHub remote)" : "No issues"}
+        </text>
       </box>
     );
   }

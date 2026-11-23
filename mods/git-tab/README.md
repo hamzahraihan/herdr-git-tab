@@ -13,7 +13,7 @@ its width and position when it comes back.
 
 | Tab | Shows |
 | --- | --- |
-| Commits | `git log --graph` across all branches, last 100: hash, subject, refs, author, age. |
+| Commits | `git log --pretty=format:... --all -n 100` across all branches, last 100: hash, subject, refs, author, age. |
 | Flow | One lane per branch, trunk first; merge commits as diamonds, ahead/behind, PR number, and `merged → main`. |
 | Branches | `git branch -vv --all`, current marker, upstream, `[gone]`, tip subject and age. |
 | PRs | Open pull requests from `gh`: title, branch, author, review check state. |

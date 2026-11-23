@@ -39,11 +39,11 @@ function isErrnoEnt(e: unknown): boolean {
 
 const FIELD_SEP = "";
 
-/** Split one `git log --graph --pretty=format:...` line into graph glyphs + fields. */
+/** Split one `git log --pretty=format:...` line into its fields. Without
+ *  `--graph`, the full hash starts the line, so no glyph prefix is kept. */
 export function parseHistoryLine(line: string): Commit | null {
   const m = HASH_RE.exec(line);
   if (!m || m.index === undefined) return null;
-  const graph = line.slice(0, m.index);
   const rest = line.slice(m.index).split(FIELD_SEP);
   if (rest.length < 7) return null;
   const [hash, shortHash, author, date, subject, refsRaw, parentsRaw] = rest;
@@ -55,7 +55,7 @@ export function parseHistoryLine(line: string): Commit | null {
           .map((s) => s.trim())
           .filter((s) => s.length > 0);
   const parents = parentsRaw.trim().length === 0 ? [] : parentsRaw.trim().split(" ");
-  return { hash, shortHash, author, date, subject, refs, graph, parents };
+  return { hash, shortHash, author, date, subject, refs, parents };
 }
 
 export function parseHistoryOutput(stdout: string): Commit[] {
@@ -69,11 +69,11 @@ export function parseHistoryOutput(stdout: string): Commit[] {
 }
 
 export async function getHistory(repo: string, limit = 100): Promise<Commit[]> {
-
   try {
+    // No --graph: no pane renders graph prefixes, and laying out the DAG
+    // across every ref costs real CPU on large histories.
     const { stdout } = await runGit(repo, [
       "log",
-      "--graph",
       "--pretty=format:%H%x1f%h%x1f%an%x1f%cI%x1f%s%x1f%D%x1f%P",
       "--all",
       "-n",
@@ -161,24 +161,41 @@ export async function getBranches(repo: string): Promise<Branch[]> {
     throw new Error(text.trim().split("\n")[0] ?? "git branch failed");
   }
   const branches = parseBranchesOutput(stdout, headRef);
-  // Enrich tip subject + date via `git log -1` per local branch; best-effort,
-  // keep the -vv message on failure. Unit separators keep author names with
-  // spaces intact.
-  await Promise.all(
-    branches
-      .filter((b) => !b.name.startsWith("remotes/"))
-      .map(async (b) => {
-        try {
-          const r = await runGit(repo, ["log", "-1", "--format=%h%x1f%an%x1f%cI%x1f%s", b.name, "--"]);
-          const tip = parseTipLine(r.stdout);
-          if (tip.subject) b.lastCommit = tip.subject;
-          if (tip.date) b.lastCommitDate = tip.date;
-        } catch {
-          // keep -vv message
-        }
-      }),
-  );
+  // Enrich tip subject + date with one for-each-ref read instead of one
+  // `git log -1` spawn per local branch (N processes per refresh).
+  try {
+    const r = await runGit(repo, [
+      "for-each-ref",
+      `--format=%(refname:short)${FIELD_SEP}%(committerdate:iso8601)${FIELD_SEP}%(subject)`,
+      "refs/heads",
+    ]);
+    const tips = parseRefDates(r.stdout);
+    for (const b of branches) {
+      if (b.name.startsWith("remotes/")) continue;
+      const tip = tips.get(b.name);
+      if (!tip) continue;
+      if (tip.subject) b.lastCommit = tip.subject;
+      if (tip.date) b.lastCommitDate = tip.date;
+    }
+  } catch {
+    // keep the -vv message
+  }
   return branches;
+}
+
+/** Tip subject + ISO date per ref from one `for-each-ref` read. */
+export function parseRefDates(stdout: string): Map<string, { subject: string; date?: string }> {
+  const map = new Map<string, { subject: string; date?: string }>();
+  for (const line of stdout.split("\n")) {
+    if (!line.trim()) continue;
+    const [name, date, ...subjectParts] = line.split(String.fromCharCode(31));
+    if (!name) continue;
+    map.set(name, {
+      subject: subjectParts.join(String.fromCharCode(31)).trim(),
+      date: date?.trim() ? date.trim() : undefined,
+    });
+  }
+  return map;
 }
 
 /** Split one `git log -1 --format=%h%x1f%an%x1f%cI%x1f%s` line into the tip
@@ -465,12 +482,16 @@ export function parseHeatmapOutput(stdout: string): CommitDayEntry[] {
   return entries;
 }
 
-/** Fetch commit dates and authors across all refs for heatmap visualization. */
-export async function getCommitHeatmap(repo: string, limit = 10000): Promise<CommitDayEntry[]> {
+/** Fetch commit dates and authors across all refs for heatmap visualization.
+ *  The grid displays at most 52 weeks, so walk no further back than a year
+ *  plus margin — a plain `-n 10000` cap re-logs whole histories on big repos
+ *  for data the window throws away. */
+export async function getCommitHeatmap(repo: string, limit = 3650): Promise<CommitDayEntry[]> {
   try {
     const { stdout } = await runGit(repo, [
       "log",
       "--date=short",
+      "--since=370 days",
       "--pretty=format:%ad\x1f%an",
       "--all",
       "-n",
@@ -483,6 +504,26 @@ export async function getCommitHeatmap(repo: string, limit = 10000): Promise<Com
     if (errCode(e) === 128 || /does not have any commits/i.test(text)) return [];
     if (isErrnoEnt(e)) throw new Error("GIT_UNAVAILABLE: git not found on PATH");
     throw new Error(text.trim().split("\n")[0] ?? "git log failed");
+  }
+}
+
+/** A cheap staleness stamp over the refs table: one in-memory for-each-ref
+ *  read (no history walk) that changes only when a branch or remote tip
+ *  moves. Empty string when the repo has no refs yet; null when the read
+ *  fails, in which case callers fall back to a full load. */
+export async function getRefStamp(repo: string): Promise<string | null> {
+  try {
+    const { stdout } = await runGit(repo, [
+      "for-each-ref",
+      `--format=%(refname:short)${FIELD_SEP}%(objectname)`,
+      "refs/heads",
+      "refs/remotes",
+    ]);
+    return stdout;
+  } catch (e) {
+    if (errCode(e) === 128) throw new Error("NOT_A_GIT_REPO");
+    if (isErrnoEnt(e)) throw new Error("GIT_UNAVAILABLE: git not found on PATH");
+    return null;
   }
 }
 

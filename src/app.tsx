@@ -25,6 +25,7 @@ import {
   getFileDiff,
   getHistory,
   getMergedBranches,
+  getRefStamp,
   getRepoStats,
   getStatus,
   statusPaths,
@@ -58,10 +59,14 @@ import IssueDetailPanel from "./views/IssueDetail.js";
 import DiffView from "./views/DiffView.js";
 
 import HeatmapPanel from "./views/HeatmapPanel.js";
-// Poll interval for following the workspace cwd. Kept short so `cd` in a
-// sibling pane repoints the tab within seconds; data refresh stays on the
-// slower `refreshSecs` cadence to avoid hammering git/gh.
-const REPO_POLL_SECS = 2;
+// Poll interval for following the workspace cwd. Each poll spawns a
+// `herdr` process, so 5s keeps `cd` in a sibling pane repointing the tab
+// within a few seconds without churning processes; data refresh stays on
+// the slower `refreshSecs` cadence to avoid hammering git/gh.
+const REPO_POLL_SECS = 5;
+// gh list calls hit the network API; the PRs/Issues data re-reads at most
+// every 60s, and only for a pane the user is actually looking at.
+const GH_LIST_TTL_MS = 60_000;
 
 export default function App({
   initialRepo,
@@ -190,7 +195,69 @@ export default function App({
   currentUserRef.current = currentUser;
   const remoteCheckedRepoRef = useRef<string | null>(null);
   const userCheckedRepoRef = useRef<string | null>(null);
+  const ghLoadingRef = useRef(false);
+  const ghLoadedRef = useRef<{ key: string; at: number } | null>(null);
+  const ghDeadRef = useRef<string | null>(null);
+  const refStampRef = useRef<string | null>(null);
+  const loadedOnceRef = useRef(false);
+  const [ghLoading, setGhLoading] = useState(false);
+  const noRemoteRef = useRef(noRemote);
+  noRemoteRef.current = noRemote;
 
+  // gh lists are lazy network reads: fetched for the PRs/Issues panes and at
+  // most every 60s, never as part of the periodic git refresh. Dead states
+  // (gh missing / not signed in / no GitHub remote) are remembered per
+  // repo+scope so we don't retry them on every call.
+  const ghSeqRef = useRef(0);
+  const loadGhLists = useCallback(
+    async (manual: boolean) => {
+      if (!repo) return;
+      if (ghLoadingRef.current) return;
+      const key = `${repo}|${scope}`;
+      if (!manual) {
+        if (ghDeadRef.current === key) return;
+        const loaded = ghLoadedRef.current;
+        if (loaded && loaded.key === key && Date.now() - loaded.at < GH_LIST_TTL_MS) return;
+      }
+      const seq = ++ghSeqRef.current;
+      ghLoadingRef.current = true;
+      setGhLoading(true);
+      try {
+        const [p, i] = await Promise.allSettled([getPRs(repo, scope), getIssues(repo, scope)]);
+        if (ghSeqRef.current !== seq) return;
+        const problems: string[] = [];
+        if (p.status === "fulfilled") setPrs(p.value);
+        else {
+          const text = paneError(p.reason);
+          if (text.startsWith("GH_UNAVAILABLE")) problems.push(text);
+          else setPaneErrors((prev) => ({ ...prev, prs: text }));
+        }
+        if (i.status === "fulfilled") setIssues(i.value);
+        else {
+          const text = paneError(i.reason);
+          if (text.startsWith("GH_UNAVAILABLE")) problems.push(text);
+          else setPaneErrors((prev) => ({ ...prev, issues: text }));
+        }
+        if (problems.length) {
+          setGhError(problems[0]);
+          setPaneErrors((prev) => { const n = { ...prev }; delete n.prs; delete n.issues; return n; });
+          ghDeadRef.current = key;
+          ghLoadedRef.current = null;
+        } else {
+          setGhError(undefined);
+          setPaneErrors((prev) => { const n = { ...prev }; delete n.prs; delete n.issues; return n; });
+          ghDeadRef.current = null;
+          ghLoadedRef.current = { key, at: Date.now() };
+        }
+      } finally {
+        if (ghSeqRef.current === seq) {
+          ghLoadingRef.current = false;
+          setGhLoading(false);
+        }
+      }
+    },
+    [repo, scope],
+  );
 
   const load = useCallback(async (opts?: { manual?: boolean }) => {
     // Re-resolve first so the closure sees the freshest cwd before any work.
@@ -203,85 +270,115 @@ export default function App({
     }
     const isManual = Boolean(opts?.manual);
     if (isManual) setBusy(busyLabel({ kind: "refresh" }));
-    setLoading(true);
 
     const shouldFetchHeatmap = isManual || activePaneRef.current === 7;
     const shouldFetchStats = isManual || activePaneRef.current === 6 || repoStatsRef.current === null;
     const shouldFetchRemote = isManual || remoteCheckedRepoRef.current !== target;
     const shouldFetchUser = isManual || userCheckedRepoRef.current !== target;
 
-    const [h, b, s, p, i, r, st, hm, cu] = await Promise.allSettled([
-      getHistory(target, 100),
-      getBranches(target),
-      getStatus(target),
-      getPRs(target, scope),
-      getIssues(target, scope),
-      shouldFetchRemote
-        ? hasGithubRemote(target).then((val) => {
-            remoteCheckedRepoRef.current = target;
-            return val;
-          })
-        : Promise.resolve(!noRemote),
-      shouldFetchStats ? getRepoStats(target) : Promise.resolve(repoStatsRef.current ?? null),
-      shouldFetchHeatmap ? getCommitHeatmap(target) : Promise.resolve(heatmapEntriesRef.current),
-      shouldFetchUser
-        ? getCurrentUser(target).then((val) => {
-            userCheckedRepoRef.current = target;
-            return val;
-          })
-        : Promise.resolve(currentUserRef.current),
-    ]);
-    const errs: Record<string, string> = {};
-    if (s.status === "rejected" && paneError(s.reason) === "NOT_A_GIT_REPO") {
-      setFatal(
-        `Not a git repository: ${target}\ncd into a git checkout and the tab follows automatically, or pass --repo <path>, then press q to exit.`,
-      );
-      setLoading(false);
-      if (opts?.manual) setBusy(null);
-      return;
+    // Staleness gate: one in-memory for-each-ref probe, no history walk.
+    // When no ref tip moved since the last full load, only the working tree
+    // can have changed — re-read just status (and the remote when due) and
+    // keep the cached history, branches, stats and heatmap.
+    let stamp: string | null = null;
+    try {
+      stamp = await getRefStamp(target);
+    } catch {
+      // Probe failed (git missing / not a repo); the full load below reports it.
     }
-    setFatal(null);
-    if (h.status === "fulfilled") setCommits(h.value);
-    else errs.history = paneError(h.reason);
-    if (b.status === "fulfilled") setBranches(b.value);
-    else errs.branches = paneError(b.reason);
-    if (s.status === "fulfilled") setStatus(s.value);
-    else errs.status = paneError((s as PromiseRejectedResult).reason);
-    if (p.status === "fulfilled") setPrs(p.value);
-    else if (paneError(p.reason).startsWith("GH_UNAVAILABLE")) setGhError(paneError(p.reason));
-    else errs.prs = paneError((p as PromiseRejectedResult).reason);
-    if (i.status === "fulfilled") setIssues(i.value);
-    else if (paneError(i.reason).startsWith("GH_UNAVAILABLE")) setGhError(paneError(i.reason));
-    else errs.issues = paneError((i as PromiseRejectedResult).reason);
-    if (r.status === "fulfilled") setNoRemote(!r.value);
-    if (st.status === "fulfilled") setRepoStats(st.value);
-    else setRepoStats(null);
-    if (hm.status === "fulfilled") setHeatmapEntries(hm.value);
-    else errs.heatmap = paneError(hm.reason);
-    if (cu.status === "fulfilled") setCurrentUser(cu.value);
-    // Merged-branch marking is best-effort: derive the trunk from the fresh
-    // data, ask git which branches it contains, and let the flow panel mark
-    // them. Any failure leaves the previous set (usually empty) in place.
-    if (h.status === "fulfilled") {
-      const branchList = b.status === "fulfilled" ? b.value : [];
-      const current = branchList.find((br) => br.current)?.name ?? null;
-      const trunk =
-        buildBranchHierarchy(h.value, branchList, [], current).rows.find((row) => row.isMain)
-          ?.name ?? null;
-      if (trunk) {
-        try {
-          const merged = await getMergedBranches(target, trunk);
-          setMergedNames(new Set(merged.filter((name) => name !== trunk)));
-        } catch {
+    const light = !isManual && stamp !== null && stamp === refStampRef.current && loadedOnceRef.current;
+
+    setLoading(true);
+    if (!light) {
+      const [h, b, s, r, st, hm, cu] = await Promise.allSettled([
+        getHistory(target, 100),
+        getBranches(target),
+        getStatus(target),
+        shouldFetchRemote
+          ? hasGithubRemote(target).then((val) => {
+              remoteCheckedRepoRef.current = target;
+              return val;
+            })
+          : Promise.resolve(!noRemoteRef.current),
+        shouldFetchStats ? getRepoStats(target) : Promise.resolve(repoStatsRef.current ?? null),
+        shouldFetchHeatmap ? getCommitHeatmap(target) : Promise.resolve(heatmapEntriesRef.current),
+        shouldFetchUser
+          ? getCurrentUser(target).then((val) => {
+              userCheckedRepoRef.current = target;
+              return val;
+            })
+          : Promise.resolve(currentUserRef.current),
+      ]);
+      if (s.status === "rejected" && paneError(s.reason) === "NOT_A_GIT_REPO") {
+        setFatal(
+          `Not a git repository: ${target}\ncd into a git checkout and the tab follows automatically, or pass --repo <path>, then press q to exit.`,
+        );
+        setLoading(false);
+        if (opts?.manual) setBusy(null);
+        return;
+      }
+      setFatal(null);
+      if (h.status === "fulfilled") setCommits(h.value);
+      if (b.status === "fulfilled") setBranches(b.value);
+      if (s.status === "fulfilled") setStatus(s.value);
+      setPaneErrors((prev) => {
+        const next = { ...prev };
+        if (b.status === "fulfilled") delete next.branches;
+        else next.branches = paneError(b.reason);
+        if (s.status === "fulfilled") delete next.status;
+        else next.status = paneError(s.reason);
+        if (hm.status === "fulfilled") delete next.heatmap;
+        else next.heatmap = paneError(hm.reason);
+        return next;
+      });
+      if (r.status === "fulfilled") setNoRemote(!r.value);
+      if (st.status === "fulfilled") setRepoStats(st.value);
+      else setRepoStats(null);
+      if (hm.status === "fulfilled") setHeatmapEntries(hm.value);
+      if (cu.status === "fulfilled") setCurrentUser(cu.value);
+      // Merged-branch marking is best-effort: derive the trunk from the fresh
+      // data, ask git which branches it contains, and let the flow panel mark
+      // them. Any failure leaves the previous set (usually empty) in place.
+      if (h.status === "fulfilled") {
+        const branchList = b.status === "fulfilled" ? b.value : [];
+        const current = branchList.find((br) => br.current)?.name ?? null;
+        const trunk =
+          buildBranchHierarchy(h.value, branchList, [], current).rows.find((row) => row.isMain)
+            ?.name ?? null;
+        if (trunk) {
+          try {
+            const merged = await getMergedBranches(target, trunk);
+            setMergedNames(new Set(merged.filter((name) => name !== trunk)));
+          } catch {
+            setMergedNames(new Set());
+          }
+        } else {
           setMergedNames(new Set());
         }
-      } else {
-        setMergedNames(new Set());
+      }
+      loadedOnceRef.current = true;
+      refStampRef.current = stamp;
+    } else {
+      const [s, r] = await Promise.allSettled([
+        getStatus(target),
+        shouldFetchRemote
+          ? hasGithubRemote(target)
+          : Promise.resolve(!noRemoteRef.current),
+      ]);
+      if (s.status === "fulfilled") setStatus(s.value);
+      else setPaneErrors((prev) => ({ ...prev, status: paneError((s as PromiseRejectedResult).reason) }));
+      if (r.status === "fulfilled") {
+        remoteCheckedRepoRef.current = target;
+        setNoRemote(!r.value);
       }
     }
     setLoading(false);
     if (opts?.manual) setBusy(null);
-  }, [repo, resolveLiveRepo, scope]);
+    // gh lists refresh for the gh panes themselves, forced on manual.
+    if (isManual || activePaneRef.current === 4 || activePaneRef.current === 5) {
+      void loadGhLists(isManual && (activePaneRef.current === 4 || activePaneRef.current === 5));
+    }
+  }, [repo, resolveLiveRepo, scope, loadGhLists]);
 
   // Reset per-pane selection + filters when the repo or scope flips. Without
   // this the old branch/PR indices can land out of range in the new data.
@@ -299,8 +396,19 @@ export default function App({
     setSelHeatmapD(undefined);
     remoteCheckedRepoRef.current = null;
     userCheckedRepoRef.current = null;
+    refStampRef.current = null;
+    loadedOnceRef.current = false;
+    // Invalidate in-flight gh loads; the new repo/scope refetches lazily.
+    ghSeqRef.current++;
+    ghLoadingRef.current = false;
+    setGhLoading(false);
+    ghLoadedRef.current = null;
+    ghDeadRef.current = null;
     setHeatmapEntries([]);
     setRepoStats(null);
+    setPrs([]);
+    setIssues([]);
+    setGhError(undefined);
     setQuery("");
     setBranchFilter("");
     setNotice("");
@@ -358,6 +466,12 @@ export default function App({
         .catch(() => setRepoStats(null));
     }
   }, [activePane, heatmapEntries.length, repo, repoStats]);
+  // gh lists are lazy: entering the PRs/Issues panes kicks off their 60s-TTL
+  // load. The periodic load only refetches when the user is on a gh pane.
+  useEffect(() => {
+    if (activePane === 4 || activePane === 5) void loadGhLists(false);
+  }, [activePane, repo, scope, loadGhLists]);
+
   const closePRDetail = (): void => {
     setPrDetail(null);
     setPrDetailError("");
@@ -921,8 +1035,9 @@ export default function App({
               query={query}
               ghError={ghError}
               noRemote={noRemote}
-              error={paneErrors.prs}
+              loading={ghLoading}
               scrollTop={scrollPR}
+              error={paneErrors.prs}
               onSelect={(i) => setSelPR(i)}
               onScroll={(d) => setScrollPR((s) => s + d)}
               onDoubleClick={(p) => openPRDetail(p.number)}
@@ -954,6 +1069,7 @@ export default function App({
               noRemote={noRemote}
               error={paneErrors.issues}
               scrollTop={scrollIssue}
+              loading={ghLoading}
               onSelect={(i) => setSelIssue(i)}
               onScroll={(d) => setScrollIssue((s) => s + d)}
               onDoubleClick={(iss) => openIssueDetail(iss.number)}

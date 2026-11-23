@@ -67,13 +67,13 @@ When stdout is not a TTY (Herdr non-interactive capture), the CLI prints
 
 ## TUI
 
-Seven panes in one view: 1 history, 2 graph, 3 branches, 4 PRs, 5 issues,
-6 status, 7 heatmap. See [Keymap](#keymap) for every binding.
+- **Seven panes in one view**: 1 history, 2 flow, 3 branches, 4 PRs, 5 issues,
+  6 status, 7 heatmap. See [Keymap](#keymap) for every binding.
 
 ## Features
 
-- **History / Graph**: `git log --graph` across all branches, with empty-repo
-  handling ("No commits yet").
+- **History**: `git log --pretty=format:... --all -n 100` across all branches, with
+  empty-repo handling ("No commits yet").
 - **Branches**: `git branch -vv --all` with current-branch marker and `[gone]`
   upstream detection. `Enter` checks out; `d` opens a log + diff-stat overlay.
 - **PRs & Issues**: GitHub-backed lists via `gh`, detail reader with description
@@ -112,7 +112,7 @@ Global (list focused, no overlay open):
 
 | Key | Action |
 | --- | --- |
-| `1`–`7` | Focus pane (1 history, 2 graph, 3 branches, 4 PRs, 5 issues, 6 status, 7 heatmap) |
+| `1`–`7` | Focus pane (1 history, 2 flow, 3 branches, 4 PRs, 5 issues, 6 status, 7 heatmap) |
 | `j` / `k` / `↑` / `↓` | Move selection (history, branches, PRs, issues, status files, heatmap days) |
 | Click | Select tab-strip item or row; wheel scrolls selection (needs `ui.mouse_capture = false` — Herdr captures mouse input by default) |
 | Select text | Drag over any text to select and copy it to the clipboard (OSC 52) |
@@ -175,7 +175,7 @@ Status (pane 6) + diff overlay:
 | `m` | Scope toggle: this repo ↔ my commits |
 ## Pane behavior
 
-- **History / Graph**: `git log --graph --pretty=format:... --all -n 100`. Empty repo
+- **History**: `git log --pretty=format:... --all -n 100`. Empty repo
   shows "No commits yet".
 - **Branches**: `git branch -vv --all`. `*` marks current, `[gone]` on missing upstream.
   `Enter` checks out; `d` shows the log + diff stat overlay.
